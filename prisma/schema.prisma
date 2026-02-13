@@ -1,0 +1,114 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum VoteSource {
+  WEB_APP
+  DISCORD_BOT
+}
+
+enum VoteSide {
+  LEFT
+  RIGHT
+  TIE
+  SKIP
+}
+
+model Asset {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  label     String
+  tier      String?
+  imageUrl  String?
+  metadata  Json?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  pairsAsLeft   VotingPair[] @relation("PairLeftAsset")
+  pairsAsRight  VotingPair[] @relation("PairRightAsset")
+  leftVotes     VoteEvent[]  @relation("LeftAssetVotes")
+  rightVotes    VoteEvent[]  @relation("RightAssetVotes")
+  selectedVotes VoteEvent[]  @relation("SelectedAssetVotes")
+
+  @@index([active, label])
+}
+
+model VotingPair {
+  id           String   @id @default(cuid())
+  pairKey      String   @unique
+  leftAssetId  String
+  rightAssetId String
+  prompt       String?
+  active       Boolean  @default(true)
+  featured     Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  leftAsset  Asset       @relation("PairLeftAsset", fields: [leftAssetId], references: [id], onDelete: Restrict)
+  rightAsset Asset       @relation("PairRightAsset", fields: [rightAssetId], references: [id], onDelete: Restrict)
+  votes      VoteEvent[]
+
+  @@index([active, featured, updatedAt(sort: Desc)])
+}
+
+model Voter {
+  id          String   @id @default(cuid())
+  visitorId   String   @unique
+  xp          Int      @default(0)
+  streakDays  Int      @default(0)
+  totalVotes  Int      @default(0)
+  lastVotedAt DateTime?
+  lastSeenAt  DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  votes VoteEvent[]
+}
+
+model VoteEvent {
+  id           String     @id @default(cuid())
+  source       VoteSource
+  selectedSide VoteSide
+  weight       Int        @default(1)
+
+  pairId          String?
+  pairKey         String
+  voterId         String?
+  leftAssetId     String
+  rightAssetId    String
+  selectedAssetId String?
+
+  pollMessageId String?
+  guildId       String?
+  channelId     String?
+  startedAt     DateTime?
+  endedAt       DateTime?
+  closedAt      DateTime?
+  metadata      Json?
+
+  createdAt DateTime @default(now())
+
+  pair          VotingPair? @relation(fields: [pairId], references: [id], onDelete: SetNull)
+  voter         Voter?      @relation(fields: [voterId], references: [id], onDelete: SetNull)
+  leftAsset     Asset       @relation("LeftAssetVotes", fields: [leftAssetId], references: [id], onDelete: Restrict)
+  rightAsset    Asset       @relation("RightAssetVotes", fields: [rightAssetId], references: [id], onDelete: Restrict)
+  selectedAsset Asset?      @relation("SelectedAssetVotes", fields: [selectedAssetId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt(sort: Desc)])
+  @@index([pairKey, createdAt(sort: Desc)])
+  @@index([source, createdAt(sort: Desc)])
+  @@index([selectedAssetId, createdAt(sort: Desc)])
+  @@unique([source, pollMessageId, selectedSide], map: "voteevent_source_poll_side_uniq")
+}
+
+model IngestionCursor {
+  source    String   @id
+  lastValue String
+  updatedAt DateTime @updatedAt
+}
