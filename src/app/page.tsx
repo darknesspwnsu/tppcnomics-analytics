@@ -96,13 +96,46 @@ function genderSymbol(gender: string): string {
   const normalized = String(gender || "").trim().toUpperCase();
   if (normalized === "M") return "♂";
   if (normalized === "F") return "♀";
+  if (normalized === "G") return "⚲";
   if (normalized === "?") return "⚲";
   return "";
 }
 
+function normalizeDisplayGender(asset: Asset, rawGender: string): string {
+  const normalized = String(rawGender || "").trim().toUpperCase();
+  const breakdown = asset.rarity?.breakdown;
+  if (!breakdown) {
+    return normalized;
+  }
+
+  const hasMale = Number(breakdown.male) > 0;
+  const hasFemale = Number(breakdown.female) > 0;
+  const hasGenderless = Number(breakdown.genderless) > 0;
+  const hasUngendered = Number(breakdown.ungendered) > 0;
+
+  if (normalized === "M" && hasMale) return "M";
+  if (normalized === "F" && hasFemale) return "F";
+  if (normalized === "G") {
+    if (hasGenderless) return "G";
+    if (hasUngendered) return "?";
+  }
+  if (normalized === "?") {
+    if (hasUngendered) return "?";
+    if (hasGenderless) return "G";
+  }
+
+  // Invalid M/F for species that only exist in genderless/ungendered buckets.
+  if (!hasMale && !hasFemale) {
+    if (hasUngendered) return "?";
+    if (hasGenderless) return "G";
+  }
+
+  return normalized;
+}
+
 function displayAssetName(asset: Asset): string {
   const parsed = parseAssetNameAndGender(asset.key);
-  const symbol = genderSymbol(parsed.gender);
+  const symbol = genderSymbol(normalizeDisplayGender(asset, parsed.gender));
   const fallback = String(asset.label || "Unknown")
     .trim()
     .replace(/\s+(?:M|F|\(\?\)|♂|♀|⚲)$/u, "");
