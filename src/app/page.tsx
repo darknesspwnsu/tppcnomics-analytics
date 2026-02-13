@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 type Asset = {
   id: string;
@@ -48,30 +48,30 @@ type VoteResponse = {
 
 type VoteSide = "LEFT" | "RIGHT" | "SKIP";
 
-const SWIPE_THRESHOLD_PX = 70;
+const SWIPE_THRESHOLD_PX = 84;
 const SPRITE_PROVIDER = process.env.NEXT_PUBLIC_SPRITE_PROVIDER === "pokeapi" ? "pokeapi" : "tppc";
+
+function clamp(n: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, n));
+}
 
 export default function Home() {
   const [pair, setPair] = useState<MatchupResponse["pair"] | null>(null);
   const [voter, setVoter] = useState<MatchupResponse["voter"] | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [statusText, setStatusText] = useState<string>("Loading your next matchup...");
+  const [statusText, setStatusText] = useState<string>("Loading next arena matchup...");
   const [lastXpGain, setLastXpGain] = useState<number | null>(null);
+  const [swipeDeltaX, setSwipeDeltaX] = useState(0);
   const swipeStartXRef = useRef<number | null>(null);
 
-  const voterSummary = useMemo(() => {
-    if (!voter) return "No vote history yet";
-    return `XP ${voter.xp} · Streak ${voter.streakDays} · Votes ${voter.totalVotes}`;
-  }, [voter]);
+  const canVote = Boolean(pair) && !loading && !submitting;
 
   const loadNextMatchup = useCallback(async (excludePairId?: string) => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (excludePairId) {
-        params.set("excludePairId", excludePairId);
-      }
+      if (excludePairId) params.set("excludePairId", excludePairId);
       const path = params.size ? `/api/matchups/next?${params.toString()}` : "/api/matchups/next";
 
       const response = await fetch(path, {
@@ -89,7 +89,7 @@ export default function Home() {
 
       setPair(data.pair);
       setVoter(data.voter);
-      setStatusText("Pick one side or swipe.");
+      setStatusText("Swipe or tap an arena side.");
     } catch {
       setPair(null);
       setStatusText("Network error while loading matchup.");
@@ -138,6 +138,7 @@ export default function Home() {
         setStatusText("Network error while submitting vote.");
       } finally {
         setSubmitting(false);
+        setSwipeDeltaX(0);
       }
     },
     [loadNextMatchup, pair, submitting]
@@ -157,93 +158,205 @@ export default function Home() {
         event.preventDefault();
         void submitVote("RIGHT");
       }
+      if (event.key === " " || event.key === "Spacebar") {
+        event.preventDefault();
+        void submitVote("SKIP");
+      }
     };
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [submitVote]);
 
-  return (
-    <div className="relative min-h-screen overflow-hidden bg-gradient-to-b from-sky-50 via-white to-orange-50">
-      <div className="pointer-events-none absolute -left-32 top-20 h-72 w-72 rounded-full bg-sky-200/40 blur-3xl" />
-      <div className="pointer-events-none absolute -right-24 bottom-16 h-72 w-72 rounded-full bg-orange-200/50 blur-3xl" />
+  const modeLabel = pair?.matchupMode || "1v1";
+  const swipeDirection = swipeDeltaX > 16 ? "RIGHT" : swipeDeltaX < -16 ? "LEFT" : null;
+  const arenaTransform = {
+    transform: `translateX(${clamp(swipeDeltaX / 6, -24, 24)}px) rotate(${clamp(swipeDeltaX / 28, -4, 4)}deg)`,
+  };
 
-      <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col px-5 py-10 md:px-10">
-        <header className="mb-8">
-          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-sky-700">TPPCNomics Arena</p>
-          <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-900 md:text-4xl">
-            Vote the market, one matchup at a time
-          </h1>
-          <p className="mt-2 text-sm text-slate-600">{statusText}</p>
+  return (
+    <div className="relative min-h-screen overflow-hidden">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(1200px_500px_at_-10%_-10%,rgba(110,231,255,0.35),transparent_60%),radial-gradient(900px_420px_at_110%_5%,rgba(251,191,36,0.30),transparent_58%),radial-gradient(900px_600px_at_50%_120%,rgba(59,130,246,0.12),transparent_70%)]" />
+      <div className="arena-noise pointer-events-none absolute inset-0 opacity-[0.16]" />
+
+      <main className="relative mx-auto flex min-h-screen w-full max-w-6xl flex-col px-4 pb-24 pt-5 sm:px-6 sm:pt-7 lg:px-10">
+        <header className="animate-rise-in">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-cyan-700">TPPCNomics Arena</p>
+              <h1 className="mt-1 text-balance text-2xl font-bold tracking-tight text-slate-950 [font-family:var(--font-display)] sm:text-3xl">
+                Swipe the Market
+              </h1>
+              <p className="mt-1 max-w-2xl text-sm text-slate-700">{statusText}</p>
+            </div>
+            <div className="glass-panel animate-pop-in rounded-full px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-700">
+              Mode {modeLabel}
+            </div>
+          </div>
         </header>
 
-        <section className="mb-6 grid gap-3 rounded-2xl border border-slate-200/80 bg-white/80 p-4 shadow-sm backdrop-blur md:grid-cols-3">
-          <div className="rounded-xl bg-slate-900 px-4 py-3 text-white">
-            <p className="text-xs uppercase tracking-wider text-slate-300">Profile</p>
-            <p className="mt-1 text-sm font-semibold">{voterSummary}</p>
-          </div>
-          <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-            <p className="text-xs uppercase tracking-wider text-slate-500">Input</p>
-            <p className="mt-1 text-sm font-semibold text-slate-800">
-              Tap cards, use <code className="rounded bg-slate-200 px-1">←</code> /{" "}
-              <code className="rounded bg-slate-200 px-1">→</code>, or swipe.
-            </p>
-          </div>
-          <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-            <p className="text-xs uppercase tracking-wider text-slate-500">Last XP</p>
-            <p className="mt-1 text-sm font-semibold text-slate-800">
-              {lastXpGain ? `+${lastXpGain}` : "No vote yet"}
-            </p>
-          </div>
+        <section className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
+          <StatusChip label="XP" value={String(voter?.xp ?? 0)} tone="sky" />
+          <StatusChip label="Streak" value={`${voter?.streakDays ?? 0}d`} tone="amber" />
+          <StatusChip label="Votes" value={String(voter?.totalVotes ?? 0)} tone="violet" />
+          <StatusChip label="Last Gain" value={lastXpGain ? `+${lastXpGain}` : "—"} tone="emerald" />
         </section>
 
         <section
-          className="grid flex-1 gap-4 md:grid-cols-2"
+          className="mt-5 flex-1"
           onPointerDown={(event) => {
             swipeStartXRef.current = event.clientX;
           }}
-          onPointerUp={(event) => {
+          onPointerMove={(event) => {
             const start = swipeStartXRef.current;
+            if (start == null || !canVote) return;
+            setSwipeDeltaX(event.clientX - start);
+          }}
+          onPointerUp={() => {
+            const delta = swipeDeltaX;
             swipeStartXRef.current = null;
-            if (start == null || !pair || submitting) return;
-            const delta = event.clientX - start;
-            if (Math.abs(delta) < SWIPE_THRESHOLD_PX) return;
+            if (!canVote) {
+              setSwipeDeltaX(0);
+              return;
+            }
+            if (Math.abs(delta) < SWIPE_THRESHOLD_PX) {
+              setSwipeDeltaX(0);
+              return;
+            }
             void submitVote(delta > 0 ? "RIGHT" : "LEFT");
           }}
+          onPointerCancel={() => {
+            swipeStartXRef.current = null;
+            setSwipeDeltaX(0);
+          }}
         >
-          <VoteCard
-            sideLabel="LEFT"
-            assets={pair?.leftAssets || (pair?.leftAsset ? [pair.leftAsset] : [])}
-            prompt={pair?.prompt || "Which one wins this round?"}
-            disabled={loading || submitting || !pair}
-            onPick={() => void submitVote("LEFT")}
-            tone="left"
-          />
-          <VoteCard
-            sideLabel="RIGHT"
-            assets={pair?.rightAssets || (pair?.rightAsset ? [pair.rightAsset] : [])}
-            prompt={pair?.prompt || "Which one wins this round?"}
-            disabled={loading || submitting || !pair}
-            onPick={() => void submitVote("RIGHT")}
-            tone="right"
-          />
+          <div
+            className="grid min-h-[56vh] gap-3 transition-transform duration-150 md:grid-cols-[1fr_auto_1fr] md:gap-5"
+            style={arenaTransform}
+          >
+            <VoteCard
+              key={`left-${pair?.id || "empty"}`}
+              sideLabel="LEFT"
+              assets={pair?.leftAssets || (pair?.leftAsset ? [pair.leftAsset] : [])}
+              prompt={pair?.prompt || "Which side wins this matchup?"}
+              disabled={!canVote}
+              onPick={() => void submitVote("LEFT")}
+              tone="left"
+              swipeHint={swipeDirection === "LEFT"}
+            />
+
+            <div className="hidden items-center justify-center md:flex">
+              <div className="animate-soft-pulse glass-panel rounded-full px-4 py-2 text-sm font-extrabold uppercase tracking-[0.16em] text-slate-700">
+                VS
+              </div>
+            </div>
+
+            <VoteCard
+              key={`right-${pair?.id || "empty"}`}
+              sideLabel="RIGHT"
+              assets={pair?.rightAssets || (pair?.rightAsset ? [pair.rightAsset] : [])}
+              prompt={pair?.prompt || "Which side wins this matchup?"}
+              disabled={!canVote}
+              onPick={() => void submitVote("RIGHT")}
+              tone="right"
+              swipeHint={swipeDirection === "RIGHT"}
+            />
+          </div>
         </section>
 
-        <footer className="mt-6 flex items-center justify-between gap-3">
-          <p className="text-xs text-slate-500">
-            Pair: {pair?.pairKey || "Loading..."} {pair?.matchupMode ? `(${pair.matchupMode})` : ""}
-          </p>
-          <button
-            type="button"
-            onClick={() => void submitVote("SKIP")}
-            disabled={loading || submitting || !pair}
-            className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Skip
-          </button>
+        <section className="sticky bottom-0 z-20 mt-6">
+          <div className="glass-panel rounded-2xl px-3 py-3 shadow-lg shadow-slate-900/10">
+            <div className="flex items-center justify-between gap-2">
+              <ActionButton
+                label="Left"
+                hint="←"
+                tone="left"
+                disabled={!canVote}
+                onClick={() => void submitVote("LEFT")}
+              />
+              <ActionButton
+                label="Skip"
+                hint="Space"
+                tone="skip"
+                disabled={!canVote}
+                onClick={() => void submitVote("SKIP")}
+              />
+              <ActionButton
+                label="Right"
+                hint="→"
+                tone="right"
+                disabled={!canVote}
+                onClick={() => void submitVote("RIGHT")}
+              />
+            </div>
+          </div>
+        </section>
+
+        <footer className="mt-3 flex items-center justify-between text-[11px] text-slate-600">
+          <span className="truncate">Pair {pair?.pairKey || "loading..."}</span>
+          <span className="uppercase tracking-wider">{modeLabel}</span>
         </footer>
       </main>
     </div>
+  );
+}
+
+function StatusChip({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone: "sky" | "amber" | "violet" | "emerald";
+}) {
+  const toneClass =
+    tone === "sky"
+      ? "from-cyan-300/40 to-sky-100/80"
+      : tone === "amber"
+        ? "from-amber-300/45 to-orange-100/80"
+        : tone === "violet"
+          ? "from-indigo-300/40 to-violet-100/80"
+          : "from-emerald-300/45 to-green-100/80";
+
+  return (
+    <div className={`animate-rise-in rounded-xl border border-white/70 bg-gradient-to-br ${toneClass} px-3 py-2`}>
+      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-600">{label}</p>
+      <p className="mt-0.5 text-lg font-bold text-slate-900 [font-family:var(--font-display)]">{value}</p>
+    </div>
+  );
+}
+
+function ActionButton({
+  label,
+  hint,
+  tone,
+  disabled,
+  onClick,
+}: {
+  label: string;
+  hint: string;
+  tone: "left" | "skip" | "right";
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  const toneClasses =
+    tone === "left"
+      ? "border-rose-300 bg-gradient-to-b from-rose-400 to-rose-500 text-white shadow-rose-500/30"
+      : tone === "right"
+        ? "border-emerald-300 bg-gradient-to-b from-emerald-400 to-emerald-500 text-white shadow-emerald-500/30"
+        : "border-slate-300 bg-gradient-to-b from-slate-100 to-slate-200 text-slate-700 shadow-slate-300/30";
+
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={`group inline-flex min-w-[30%] flex-1 flex-col items-center justify-center rounded-2xl border px-3 py-2 text-center shadow-md transition hover:-translate-y-0.5 hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-50 ${toneClasses}`}
+    >
+      <span className="text-sm font-extrabold uppercase tracking-wide">{label}</span>
+      <span className="text-[10px] font-semibold uppercase tracking-[0.18em] opacity-85">{hint}</span>
+    </button>
   );
 }
 
@@ -254,6 +367,7 @@ function VoteCard({
   disabled,
   onPick,
   tone,
+  swipeHint,
 }: {
   sideLabel: "LEFT" | "RIGHT";
   assets: Asset[];
@@ -261,6 +375,7 @@ function VoteCard({
   disabled: boolean;
   onPick: () => void;
   tone: "left" | "right";
+  swipeHint: boolean;
 }) {
   const [failedAssetKeys, setFailedAssetKeys] = useState<string[]>([]);
   const activeAssets = assets.slice(0, 2);
@@ -270,66 +385,76 @@ function VoteCard({
     : "Unranked";
   const avgElo = activeAssets.length
     ? activeAssets.reduce((sum, asset) => sum + (Number(asset.elo) || 1500), 0) / activeAssets.length
-    : null;
+    : 1500;
 
   const toneClasses =
     tone === "left"
-      ? "border-sky-300 bg-gradient-to-b from-sky-50 to-white"
-      : "border-orange-300 bg-gradient-to-b from-orange-50 to-white";
+      ? "border-cyan-300/80 from-cyan-100/85 via-white to-cyan-50/70"
+      : "border-amber-300/80 from-amber-100/85 via-white to-orange-50/70";
 
   return (
     <button
       type="button"
       onClick={onPick}
       disabled={disabled}
-      className={`group rounded-3xl border p-6 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-60 ${toneClasses}`}
+      className={`relative overflow-hidden rounded-3xl border bg-gradient-to-b p-4 text-left shadow-md transition duration-200 hover:-translate-y-0.5 hover:shadow-xl disabled:cursor-not-allowed disabled:opacity-60 sm:p-5 ${toneClasses} ${swipeHint ? "ring-4 ring-emerald-300/50" : ""}`}
     >
-      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{sideLabel}</p>
-      <div className="mt-4 flex h-32 items-center justify-center gap-3 rounded-2xl border border-slate-200/90 bg-white/90">
-        {activeAssets.length ? (
-          activeAssets.map((asset) => {
-            const params = new URLSearchParams({ assetKey: asset.key });
-            if (SPRITE_PROVIDER !== "tppc") params.set("prefer", SPRITE_PROVIDER);
-            const spriteUrl = `/api/sprites?${params.toString()}`;
-            const imageFailed = failedAssetKeys.includes(asset.key);
-
-            return imageFailed ? (
-              <span
-                key={`${asset.key}-missing`}
-                className="inline-flex h-24 w-24 items-center justify-center rounded-xl border border-dashed border-slate-300 text-[10px] font-semibold uppercase tracking-wide text-slate-400"
-              >
-                No sprite
-              </span>
-            ) : (
-              <Image
-                key={asset.key}
-                src={spriteUrl}
-                alt={`${asset.label} sprite`}
-                width={96}
-                height={96}
-                unoptimized
-                className={`h-24 w-24 object-contain ${SPRITE_PROVIDER === "pokeapi" ? "sprite-gold-filter" : ""}`}
-                style={{ imageRendering: "pixelated" }}
-                onError={() => {
-                  setFailedAssetKeys((prev) => (prev.includes(asset.key) ? prev : [...prev, asset.key]));
-                }}
-              />
-            );
-          })
-        ) : (
-          <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">No sprite</span>
-        )}
-      </div>
-      <h2 className="mt-2 text-3xl font-black tracking-tight text-slate-900">{title}</h2>
-      <p className="mt-2 text-sm text-slate-600">{prompt}</p>
-      <div className="mt-6 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white">{tierLabel}</span>
-          <span className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700">
-            Elo {avgElo ? Math.round(avgElo) : 1500}
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(80%_120%_at_90%_0%,rgba(255,255,255,0.75),transparent_60%)]" />
+      <div className="relative">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-600">{sideLabel}</p>
+          <span className="rounded-full border border-slate-200/90 bg-white/85 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
+            Team {activeAssets.length || 1}
           </span>
         </div>
-        <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Tap to vote</span>
+
+        <div className="mt-3 flex min-h-28 items-center justify-center gap-2 rounded-2xl border border-white/70 bg-white/70 px-2 py-2 shadow-inner">
+          {activeAssets.length ? (
+            activeAssets.map((asset) => {
+              const params = new URLSearchParams({ assetKey: asset.key });
+              if (SPRITE_PROVIDER !== "tppc") params.set("prefer", SPRITE_PROVIDER);
+              const spriteUrl = `/api/sprites?${params.toString()}`;
+              const imageFailed = failedAssetKeys.includes(asset.key);
+
+              return imageFailed ? (
+                <span
+                  key={`${asset.key}-missing`}
+                  className="inline-flex h-24 w-24 items-center justify-center rounded-xl border border-dashed border-slate-300 text-[10px] font-semibold uppercase tracking-wide text-slate-400"
+                >
+                  No sprite
+                </span>
+              ) : (
+                <Image
+                  key={asset.key}
+                  src={spriteUrl}
+                  alt={`${asset.label} sprite`}
+                  width={96}
+                  height={96}
+                  unoptimized
+                  className={`h-24 w-24 object-contain ${SPRITE_PROVIDER === "pokeapi" ? "sprite-gold-filter" : ""}`}
+                  style={{ imageRendering: "pixelated" }}
+                  onError={() => {
+                    setFailedAssetKeys((prev) => (prev.includes(asset.key) ? prev : [...prev, asset.key]));
+                  }}
+                />
+              );
+            })
+          ) : (
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">No sprite</span>
+          )}
+        </div>
+
+        <h2 className="mt-3 text-2xl font-black tracking-tight text-slate-900 [font-family:var(--font-display)] sm:text-[2rem]">
+          {title}
+        </h2>
+        <p className="mt-2 line-clamp-2 text-sm text-slate-700">{prompt}</p>
+
+        <div className="mt-4 flex items-center justify-between gap-2">
+          <span className="rounded-full bg-slate-900 px-3 py-1 text-[11px] font-semibold text-white">{tierLabel}</span>
+          <span className="rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold text-slate-800">
+            Elo {Math.round(avgElo)}
+          </span>
+        </div>
       </div>
     </button>
   );

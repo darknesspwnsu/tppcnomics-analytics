@@ -1,21 +1,82 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f9fafb;
+  --background: #f7fbff;
   --foreground: #0f172a;
+  --font-display: var(--font-oxanium);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-space-grotesk);
   --font-mono: var(--font-geist-mono);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-sans), sans-serif;
+  font-family: var(--font-space-grotesk), sans-serif;
+  min-height: 100vh;
+}
+
+.arena-noise {
+  background-image:
+    radial-gradient(circle at 1px 1px, rgba(15, 23, 42, 0.08) 1px, transparent 0),
+    radial-gradient(circle at 2px 2px, rgba(15, 23, 42, 0.06) 1px, transparent 0);
+  background-size:
+    18px 18px,
+    32px 32px;
+}
+
+.glass-panel {
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.88) 0%, rgba(255, 255, 255, 0.66) 100%);
+  backdrop-filter: blur(8px);
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes soft-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.16);
+  }
+  50% {
+    box-shadow: 0 0 0 10px rgba(56, 189, 248, 0);
+  }
+}
+
+.animate-rise-in {
+  animation: rise-in 320ms ease-out both;
+}
+
+.animate-pop-in {
+  animation: pop-in 260ms ease-out both;
+}
+
+.animate-soft-pulse {
+  animation: soft-pulse 2200ms ease-in-out infinite;
 }
 
 .sprite-gold-filter {
