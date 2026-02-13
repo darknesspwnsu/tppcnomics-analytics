@@ -69,7 +69,7 @@ export async function GET(request: NextRequest) {
           },
         },
       },
-      orderBy: [{ featured: "desc" as const }, { updatedAt: "asc" as const }],
+      orderBy: [{ featured: "desc" as const }, { updatedAt: "desc" as const }],
     };
 
     let pair = await prisma.votingPair.findFirst(query);

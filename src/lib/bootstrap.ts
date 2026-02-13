@@ -1,55 +1,151 @@
 import { PrismaClient } from "@prisma/client";
 
 import { DEFAULT_ASSETS, DEFAULT_PAIRS } from "@/lib/default-seed";
+import {
+  buildSeedAssetRows,
+  loadMarketpollSeedCsvFromRepo,
+  parseMarketpollSeedCsv,
+} from "@/lib/marketpoll-seeds";
 import { canonicalPairKey } from "@/lib/pair-key";
 
-export async function ensureBootstrapData(prisma: PrismaClient): Promise<void> {
-  const existing = await prisma.votingPair.count({ where: { active: true } });
-  if (existing > 0) return;
+const MIN_ACTIVE_PAIR_TARGET = 300;
 
-  for (const asset of DEFAULT_ASSETS) {
-    await prisma.asset.upsert({
-      where: { key: asset.key },
-      update: {
-        label: asset.label,
-        tier: asset.tier,
-        imageUrl: asset.imageUrl ?? null,
-        active: true,
-      },
-      create: {
-        key: asset.key,
-        label: asset.label,
-        tier: asset.tier,
-        imageUrl: asset.imageUrl ?? null,
-        active: true,
-      },
-    });
+async function seedFromMarketpollCsv(prisma: PrismaClient): Promise<boolean> {
+  const csvText = loadMarketpollSeedCsvFromRepo();
+  const parsed = parseMarketpollSeedCsv(csvText);
+
+  if (parsed.errors.length > 0) {
+    const head = parsed.errors.slice(0, 5).join("; ");
+    throw new Error(`Seed CSV parse errors (${parsed.errors.length}): ${head}`);
   }
 
-  for (const pair of DEFAULT_PAIRS) {
-    const left = await prisma.asset.findUnique({ where: { key: pair.leftKey } });
-    const right = await prisma.asset.findUnique({ where: { key: pair.rightKey } });
-    if (!left || !right || left.id === right.id) continue;
+  if (parsed.assets.length < 50 || parsed.pairs.length < 100) {
+    throw new Error(
+      `Seed CSV did not generate enough rows (assets=${parsed.assets.length}, pairs=${parsed.pairs.length}).`
+    );
+  }
 
-    const pairKey = canonicalPairKey(left.key, right.key);
+  const assetRows = buildSeedAssetRows(parsed.assets);
+  await prisma.asset.createMany({
+    data: assetRows,
+    skipDuplicates: true,
+  });
 
-    await prisma.votingPair.upsert({
-      where: { pairKey },
-      update: {
-        leftAssetId: left.id,
-        rightAssetId: right.id,
+  const seededAssets = await prisma.asset.findMany({
+    where: {
+      key: {
+        in: parsed.assets.map((asset) => asset.assetKey),
+      },
+    },
+    select: {
+      id: true,
+      key: true,
+    },
+  });
+
+  const assetIdByKey = new Map(seededAssets.map((asset) => [asset.key, asset.id]));
+  const pairRows = parsed.pairs
+    .map((pair) => {
+      const leftAssetId = assetIdByKey.get(pair.leftKey);
+      const rightAssetId = assetIdByKey.get(pair.rightKey);
+      if (!leftAssetId || !rightAssetId || leftAssetId === rightAssetId) return null;
+      return {
+        pairKey: canonicalPairKey(pair.leftKey, pair.rightKey),
+        leftAssetId,
+        rightAssetId,
         prompt: pair.prompt,
         featured: Boolean(pair.featured),
         active: true,
+      };
+    })
+    .filter(Boolean) as Array<{
+    pairKey: string;
+    leftAssetId: string;
+    rightAssetId: string;
+    prompt: string;
+    featured: boolean;
+    active: boolean;
+  }>;
+
+  await prisma.votingPair.createMany({
+    data: pairRows,
+    skipDuplicates: true,
+  });
+
+  return true;
+}
+
+async function seedFallbackDefaults(prisma: PrismaClient): Promise<void> {
+  await prisma.asset.createMany({
+    data: DEFAULT_ASSETS.map((asset) => ({
+      key: asset.key,
+      label: asset.label,
+      tier: asset.tier,
+      imageUrl: asset.imageUrl ?? null,
+      active: true,
+    })),
+    skipDuplicates: true,
+  });
+
+  const assets = await prisma.asset.findMany({
+    where: {
+      key: {
+        in: DEFAULT_ASSETS.map((asset) => asset.key),
       },
-      create: {
-        pairKey,
-        leftAssetId: left.id,
-        rightAssetId: right.id,
-        prompt: pair.prompt,
-        featured: Boolean(pair.featured),
-        active: true,
-      },
-    });
+    },
+    select: {
+      id: true,
+      key: true,
+    },
+  });
+  const assetIdByKey = new Map(assets.map((asset) => [asset.key, asset.id]));
+
+  const pairs = DEFAULT_PAIRS.map((pair) => {
+    const leftAssetId = assetIdByKey.get(pair.leftKey);
+    const rightAssetId = assetIdByKey.get(pair.rightKey);
+    if (!leftAssetId || !rightAssetId || leftAssetId === rightAssetId) return null;
+
+    return {
+      pairKey: canonicalPairKey(pair.leftKey, pair.rightKey),
+      leftAssetId,
+      rightAssetId,
+      prompt: pair.prompt,
+      featured: Boolean(pair.featured),
+      active: true,
+    };
+  }).filter(Boolean) as Array<{
+    pairKey: string;
+    leftAssetId: string;
+    rightAssetId: string;
+    prompt: string;
+    featured: boolean;
+    active: boolean;
+  }>;
+
+  await prisma.votingPair.createMany({
+    data: pairs,
+    skipDuplicates: true,
+  });
+}
+
+export async function ensureBootstrapData(prisma: PrismaClient): Promise<void> {
+  const existing = await prisma.votingPair.count({
+    where: {
+      active: true,
+    },
+  });
+
+  if (existing >= MIN_ACTIVE_PAIR_TARGET) return;
+
+  try {
+    await seedFromMarketpollCsv(prisma);
+  } catch (error) {
+    if (process.env.NODE_ENV !== "production") {
+      console.warn(
+        "[bootstrap] marketpoll seed import failed, using fallback seeds:",
+        error instanceof Error ? error.message : error
+      );
+    }
+    await seedFallbackDefaults(prisma);
   }
 }
