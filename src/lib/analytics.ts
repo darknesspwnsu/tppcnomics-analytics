@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { labelFromAssetKey, normalizeGenderLabel } from "@/lib/pair-key";
 
 const TREND_DAYS = 30;
 const HEATMAP_LOOKBACK_DAYS = 28;
@@ -290,7 +291,7 @@ export async function getAnalyticsSnapshot(): Promise<AnalyticsSnapshot> {
     return {
       assetId: score.assetId,
       key: score.asset.key,
-      label: score.asset.label,
+      label: labelFromAssetKey(score.asset.key),
       tier: score.asset.tier,
       elo: round(score.elo, 2),
       pollsCount: score.pollsCount,
@@ -389,7 +390,7 @@ export async function getAnalyticsSnapshot(): Promise<AnalyticsSnapshot> {
       return {
         assetId: score.assetId,
         key: score.asset.key,
-        label: score.asset.label,
+        label: labelFromAssetKey(score.asset.key),
         tier: score.asset.tier,
         elo: round(score.elo, 2),
         recentMatches,
@@ -416,7 +417,7 @@ export async function getAnalyticsSnapshot(): Promise<AnalyticsSnapshot> {
       return {
         assetId: score.assetId,
         key: score.asset.key,
-        label: score.asset.label,
+        label: labelFromAssetKey(score.asset.key),
         elo: round(score.elo, 2),
         pollsCount: score.pollsCount,
         winRate: round(safeRate(score.wins, decisivePolls, 0.5), 4),
@@ -444,8 +445,8 @@ export async function getAnalyticsSnapshot(): Promise<AnalyticsSnapshot> {
           voteId: candidate.vote_id,
           pairKey: candidate.pair_key,
           createdAt: new Date(candidate.created_at).toISOString(),
-          winnerLabel: candidate.left_label,
-          loserLabel: candidate.right_label,
+          winnerLabel: normalizeGenderLabel(candidate.left_label),
+          loserLabel: normalizeGenderLabel(candidate.right_label),
           winnerElo: round(leftElo, 2),
           loserElo: round(rightElo, 2),
           upsetDelta: round(upsetDelta, 2),
@@ -461,8 +462,8 @@ export async function getAnalyticsSnapshot(): Promise<AnalyticsSnapshot> {
         voteId: candidate.vote_id,
         pairKey: candidate.pair_key,
         createdAt: new Date(candidate.created_at).toISOString(),
-        winnerLabel: candidate.right_label,
-        loserLabel: candidate.left_label,
+        winnerLabel: normalizeGenderLabel(candidate.right_label),
+        loserLabel: normalizeGenderLabel(candidate.left_label),
         winnerElo: round(rightElo, 2),
         loserElo: round(leftElo, 2),
         upsetDelta: round(upsetDelta, 2),

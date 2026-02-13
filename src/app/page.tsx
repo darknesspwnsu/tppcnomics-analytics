@@ -96,8 +96,9 @@ function genderSymbol(gender: string): string {
   const normalized = String(gender || "").trim().toUpperCase();
   if (normalized === "M") return "♂";
   if (normalized === "F") return "♀";
-  if (normalized === "G") return "⚲";
-  if (normalized === "?") return "⚲";
+  if (normalized === "G") return "(?)";
+  if (normalized === "U") return "(?)";
+  if (normalized === "?") return "(?)";
   return "";
 }
 
@@ -138,7 +139,7 @@ function displayAssetName(asset: Asset): string {
   const symbol = genderSymbol(normalizeDisplayGender(asset, parsed.gender));
   const fallback = String(asset.label || "Unknown")
     .trim()
-    .replace(/\s+(?:M|F|\(\?\)|♂|♀|⚲)$/u, "");
+    .replace(/\s+(?:M|F|U|\(\?\)|\?|G|♂|♀|⚲)$/u, "");
   const base = parsed.name || fallback || "Unknown";
   return symbol ? `${base} ${symbol}` : base;
 }
