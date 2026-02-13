@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type Asset = {
@@ -44,6 +45,7 @@ type VoteResponse = {
 type VoteSide = "LEFT" | "RIGHT" | "SKIP";
 
 const SWIPE_THRESHOLD_PX = 70;
+const SPRITE_PROVIDER = process.env.NEXT_PUBLIC_SPRITE_PROVIDER === "pokeapi" ? "pokeapi" : "tppc";
 
 export default function Home() {
   const [pair, setPair] = useState<MatchupResponse["pair"] | null>(null);
@@ -248,6 +250,13 @@ function VoteCard({
   onPick: () => void;
   tone: "left" | "right";
 }) {
+  const [failedAssetKey, setFailedAssetKey] = useState<string | null>(null);
+  const activeAssetKey = asset?.key || "";
+  const params = new URLSearchParams({ assetKey: activeAssetKey });
+  if (SPRITE_PROVIDER !== "tppc") params.set("prefer", SPRITE_PROVIDER);
+  const spriteUrl = activeAssetKey ? `/api/sprites?${params.toString()}` : "";
+  const imageFailed = Boolean(activeAssetKey && failedAssetKey === activeAssetKey);
+
   const toneClasses =
     tone === "left"
       ? "border-sky-300 bg-gradient-to-b from-sky-50 to-white"
@@ -261,6 +270,22 @@ function VoteCard({
       className={`group rounded-3xl border p-6 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-60 ${toneClasses}`}
     >
       <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{sideLabel}</p>
+      <div className="mt-4 flex h-32 items-center justify-center rounded-2xl border border-slate-200/90 bg-white/90">
+        {asset && !imageFailed ? (
+          <Image
+            src={spriteUrl}
+            alt={`${asset.label} sprite`}
+            width={96}
+            height={96}
+            unoptimized
+            className={`h-24 w-24 object-contain ${SPRITE_PROVIDER === "pokeapi" ? "sprite-gold-filter" : ""}`}
+            style={{ imageRendering: "pixelated" }}
+            onError={() => setFailedAssetKey(activeAssetKey)}
+          />
+        ) : (
+          <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">No sprite</span>
+        )}
+      </div>
       <h2 className="mt-2 text-3xl font-black tracking-tight text-slate-900">{asset?.label || "Loading..."}</h2>
       <p className="mt-2 text-sm text-slate-600">{prompt}</p>
       <div className="mt-6 flex items-center justify-between">

@@ -17,3 +17,7 @@ body {
   color: var(--foreground);
   font-family: var(--font-sans), sans-serif;
 }
+
+.sprite-gold-filter {
+  filter: sepia(1) saturate(2.5) hue-rotate(-12deg) brightness(1.04) contrast(1.08);
+}
