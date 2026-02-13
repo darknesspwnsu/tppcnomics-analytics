@@ -110,10 +110,14 @@ function displayAssetName(asset: Asset): string {
   return symbol ? `${base} ${symbol}` : base;
 }
 
-function formatRarityCount(value: unknown): string {
+function formatRarityCountOrNull(value: unknown): string | null {
   const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) return "—";
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
   return RARITY_FORMATTER.format(Math.trunc(parsed));
+}
+
+function formatRarityCount(value: unknown): string {
+  return formatRarityCountOrNull(value) || "—";
 }
 
 function rarityTotalLabel(asset: Asset): string {
@@ -127,9 +131,9 @@ function rarityTotalLabel(asset: Asset): string {
   return formatRarityCount(value);
 }
 
-function raritySummary(assets: Asset[]): string {
+function raritySummary(assets: Asset[]): string | null {
   const values = [...new Set(assets.map((asset) => rarityTotalLabel(asset)).filter((value) => value !== "—"))];
-  if (!values.length) return "—";
+  if (!values.length) return null;
   if (values.length === 1) return values[0];
   return values.join(" / ");
 }
@@ -320,7 +324,7 @@ export default function Home() {
           }}
         >
           <div
-            className="mx-auto grid w-full min-h-[56vh] max-w-[980px] items-stretch gap-3 transition-transform duration-150 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] md:gap-5"
+            className="mx-auto grid w-full min-h-[56vh] max-w-[1040px] items-stretch gap-3 transition-transform duration-150 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] md:gap-5"
             style={arenaTransform}
           >
             <VoteCard
@@ -435,10 +439,10 @@ function ActionButton({
 }) {
   const toneClasses =
     tone === "left"
-      ? "border-rose-300 bg-gradient-to-b from-rose-400 to-rose-500 text-white shadow-rose-500/30 dark:border-rose-700 dark:from-rose-700 dark:to-rose-900 dark:shadow-rose-950/40"
+      ? "border-rose-300 bg-gradient-to-b from-rose-400 to-rose-500 text-white shadow-rose-500/30 dark:border-rose-700 dark:from-rose-900 dark:to-rose-950 dark:text-rose-100 dark:shadow-black/45"
       : tone === "right"
-        ? "border-emerald-300 bg-gradient-to-b from-emerald-400 to-emerald-500 text-white shadow-emerald-500/30 dark:border-emerald-700 dark:from-emerald-700 dark:to-emerald-900 dark:shadow-emerald-950/40"
-        : "border-slate-300 bg-gradient-to-b from-slate-100 to-slate-200 text-slate-700 shadow-slate-300/30 dark:border-slate-600 dark:from-slate-700 dark:to-slate-800 dark:text-slate-200";
+        ? "border-emerald-300 bg-gradient-to-b from-emerald-400 to-emerald-500 text-white shadow-emerald-500/30 dark:border-emerald-700 dark:from-emerald-900 dark:to-emerald-950 dark:text-emerald-100 dark:shadow-black/45"
+        : "border-slate-300 bg-gradient-to-b from-slate-100 to-slate-200 text-slate-700 shadow-slate-300/30 dark:border-slate-600 dark:from-slate-800 dark:to-slate-950 dark:text-slate-200 dark:shadow-black/45";
 
   return (
     <button
@@ -476,11 +480,11 @@ function VoteCard({
   const rarityTags = activeAssets.map((asset) => ({
     key: asset.key,
     name: displayAssetName(asset),
-    male: formatRarityCount(asset.rarity?.breakdown?.male),
-    female: formatRarityCount(asset.rarity?.breakdown?.female),
-    genderless: formatRarityCount(asset.rarity?.breakdown?.genderless),
-    ungendered: formatRarityCount(asset.rarity?.breakdown?.ungendered),
-    total: formatRarityCount(asset.rarity?.breakdown?.total ?? asset.rarity?.count),
+    male: formatRarityCountOrNull(asset.rarity?.breakdown?.male),
+    female: formatRarityCountOrNull(asset.rarity?.breakdown?.female),
+    genderless: formatRarityCountOrNull(asset.rarity?.breakdown?.genderless),
+    ungendered: formatRarityCountOrNull(asset.rarity?.breakdown?.ungendered),
+    total: formatRarityCountOrNull(asset.rarity?.breakdown?.total ?? asset.rarity?.count),
   }));
   const avgElo = activeAssets.length
     ? activeAssets.reduce((sum, asset) => sum + (Number(asset.elo) || 1500), 0) / activeAssets.length
@@ -496,7 +500,7 @@ function VoteCard({
       type="button"
       onClick={onPick}
       disabled={disabled}
-      className={`relative mx-auto flex w-full max-w-[390px] flex-col overflow-hidden rounded-3xl border bg-gradient-to-b p-4 text-left shadow-md transition duration-200 hover:-translate-y-0.5 hover:shadow-xl dark:shadow-black/35 disabled:cursor-not-allowed disabled:opacity-60 aspect-[5/7] sm:p-5 ${toneClasses} ${swipeHint ? "ring-4 ring-emerald-300/50 dark:ring-emerald-500/45" : ""}`}
+      className={`relative mx-auto flex w-full max-w-[420px] flex-col overflow-hidden rounded-3xl border bg-gradient-to-b p-4 text-left shadow-md transition duration-200 hover:-translate-y-0.5 hover:shadow-xl dark:shadow-black/35 disabled:cursor-not-allowed disabled:opacity-60 aspect-[5/7] sm:p-5 ${toneClasses} ${swipeHint ? "ring-4 ring-emerald-300/50 dark:ring-emerald-500/45" : ""}`}
     >
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(80%_120%_at_90%_0%,rgba(255,255,255,0.75),transparent_60%)] dark:bg-[radial-gradient(80%_120%_at_90%_0%,rgba(51,65,85,0.45),transparent_62%)]" />
       <div className="relative flex h-full flex-col">
@@ -548,11 +552,11 @@ function VoteCard({
             )}
           </div>
 
-          <h2 className="mt-3 text-center text-2xl font-black tracking-tight text-slate-900 [font-family:var(--font-display)] dark:text-slate-100 sm:text-[2rem]">
+          <h2 className="mt-3 text-center text-[1.65rem] font-black tracking-tight text-slate-900 [font-family:var(--font-display)] dark:text-slate-100 sm:text-[1.8rem]">
             {titleNames.length > 1 ? (
               <>
                 <span className="block line-clamp-1 leading-tight">{titleNames[0]}</span>
-                <span className="block text-lg leading-none text-slate-500 dark:text-slate-400">+</span>
+                <span className="block text-base leading-none text-slate-500 dark:text-slate-400">+</span>
                 <span className="block line-clamp-1 leading-tight">{titleNames[1]}</span>
               </>
             ) : (
@@ -566,19 +570,33 @@ function VoteCard({
                 key={`${tag.key}-rarity`}
                 className="rounded-xl border border-slate-300 bg-white/85 px-2.5 py-1.5 text-[10px] font-semibold tracking-wide text-slate-700 dark:border-slate-600 dark:bg-slate-900/85 dark:text-slate-300"
               >
-                <p className="truncate text-[10px] font-bold uppercase tracking-wide">{tag.name}</p>
-                <p className="mt-0.5 text-[10px] font-semibold text-slate-700 dark:text-slate-300">
-                  M {tag.male} • F {tag.female} • G {tag.genderless} • U {tag.ungendered} • T {tag.total}
-                </p>
-              </div>
-            ))}
-          </div>
+              <p className="truncate text-[10px] font-bold uppercase tracking-wide">{tag.name}</p>
+              <p className="mt-0.5 text-[10px] font-semibold text-slate-700 dark:text-slate-300">
+                {[
+                  tag.male ? `♂ ${tag.male}` : null,
+                  tag.female ? `♀ ${tag.female}` : null,
+                  tag.genderless ? `⚲ ${tag.genderless}` : null,
+                  tag.ungendered ? `(?) ${tag.ungendered}` : null,
+                  tag.total ? `Total ${tag.total}` : null,
+                ]
+                  .filter(Boolean)
+                  .join(" • ") || "No rarity data"}
+              </p>
+            </div>
+          ))}
+        </div>
         </div>
 
         <div className="mt-3 flex items-center justify-between gap-2">
-          <span className="rounded-full bg-slate-900 px-3 py-1 text-[11px] font-semibold text-white dark:bg-slate-700">
-            Total {raritySummary(activeAssets)}
-          </span>
+          {raritySummary(activeAssets) ? (
+            <span className="rounded-full bg-slate-900 px-3 py-1 text-[11px] font-semibold text-white dark:bg-slate-700">
+              Total {raritySummary(activeAssets)}
+            </span>
+          ) : (
+            <span className="rounded-full border border-slate-300 bg-white/90 px-3 py-1 text-[11px] font-semibold text-slate-700 dark:border-slate-600 dark:bg-slate-900/90 dark:text-slate-300">
+              Total unavailable
+            </span>
+          )}
           <span className="rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold text-slate-800 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200">
             Elo {Math.round(avgElo)}
           </span>
