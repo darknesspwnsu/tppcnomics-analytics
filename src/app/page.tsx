@@ -61,10 +61,16 @@ export default function Home() {
     return `XP ${voter.xp} · Streak ${voter.streakDays} · Votes ${voter.totalVotes}`;
   }, [voter]);
 
-  const loadNextMatchup = useCallback(async () => {
+  const loadNextMatchup = useCallback(async (excludePairId?: string) => {
     setLoading(true);
     try {
-      const response = await fetch("/api/matchups/next", {
+      const params = new URLSearchParams();
+      if (excludePairId) {
+        params.set("excludePairId", excludePairId);
+      }
+      const path = params.size ? `/api/matchups/next?${params.toString()}` : "/api/matchups/next";
+
+      const response = await fetch(path, {
         method: "GET",
         credentials: "include",
         headers: { accept: "application/json" },
@@ -123,7 +129,7 @@ export default function Home() {
         });
         setLastXpGain(data.voter.xpGain);
         setStatusText(`Vote saved. +${data.voter.xpGain} XP`);
-        await loadNextMatchup();
+        await loadNextMatchup(pair.id);
       } catch {
         setStatusText("Network error while submitting vote.");
       } finally {

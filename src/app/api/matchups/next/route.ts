@@ -6,6 +6,26 @@ import { prisma } from "@/lib/prisma";
 import { getOrCreateVisitorId, issueVisitorCookie } from "@/lib/visitor-session";
 
 const RECENT_PAIR_EXCLUDE_LIMIT = 20;
+const FEATURED_PAIR_WEIGHT = 2;
+
+function pickWeightedRandomPairId(candidates: Array<{ id: string; featured: boolean }>): string | null {
+  if (!candidates.length) return null;
+
+  let totalWeight = 0;
+  const weighted = candidates.map((candidate) => {
+    const weight = candidate.featured ? FEATURED_PAIR_WEIGHT : 1;
+    totalWeight += weight;
+    return { id: candidate.id, weight };
+  });
+
+  let roll = Math.random() * totalWeight;
+  for (const candidate of weighted) {
+    roll -= candidate.weight;
+    if (roll <= 0) return candidate.id;
+  }
+
+  return weighted[weighted.length - 1]?.id || null;
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -44,42 +64,62 @@ export async function GET(request: NextRequest) {
         .filter(Boolean);
     }
 
-    const query = {
+    const excludePairId = String(request.nextUrl.searchParams.get("excludePairId") || "").trim();
+    if (excludePairId) {
+      excludedPairIds.push(excludePairId);
+    }
+
+    excludedPairIds = [...new Set(excludedPairIds)];
+
+    const filteredCandidates = await prisma.votingPair.findMany({
       where: {
         active: true,
         ...(excludedPairIds.length ? { id: { notIn: excludedPairIds } } : {}),
       },
-      include: {
-        leftAsset: {
-          select: {
-            id: true,
-            key: true,
-            label: true,
-            tier: true,
-            imageUrl: true,
-          },
-        },
-        rightAsset: {
-          select: {
-            id: true,
-            key: true,
-            label: true,
-            tier: true,
-            imageUrl: true,
-          },
-        },
+      select: {
+        id: true,
+        featured: true,
       },
-      orderBy: [{ featured: "desc" as const }, { updatedAt: "desc" as const }],
-    };
+    });
 
-    let pair = await prisma.votingPair.findFirst(query);
+    let selectedPairId = pickWeightedRandomPairId(filteredCandidates);
 
-    if (!pair) {
-      pair = await prisma.votingPair.findFirst({
-        ...query,
+    if (!selectedPairId) {
+      const fallbackCandidates = await prisma.votingPair.findMany({
         where: { active: true },
+        select: {
+          id: true,
+          featured: true,
+        },
       });
+      selectedPairId = pickWeightedRandomPairId(fallbackCandidates);
     }
+
+    const pair = selectedPairId
+      ? await prisma.votingPair.findUnique({
+          where: { id: selectedPairId },
+          include: {
+            leftAsset: {
+              select: {
+                id: true,
+                key: true,
+                label: true,
+                tier: true,
+                imageUrl: true,
+              },
+            },
+            rightAsset: {
+              select: {
+                id: true,
+                key: true,
+                label: true,
+                tier: true,
+                imageUrl: true,
+              },
+            },
+          },
+        })
+      : null;
 
     if (!pair) {
       const emptyResponse = NextResponse.json(
