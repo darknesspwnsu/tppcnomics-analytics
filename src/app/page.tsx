@@ -435,9 +435,9 @@ function ActionButton({
 }) {
   const toneClasses =
     tone === "left"
-      ? "border-rose-300 bg-gradient-to-b from-rose-400 to-rose-500 text-white shadow-rose-500/30"
+      ? "border-rose-300 bg-gradient-to-b from-rose-400 to-rose-500 text-white shadow-rose-500/30 dark:border-rose-700 dark:from-rose-700 dark:to-rose-900 dark:shadow-rose-950/40"
       : tone === "right"
-        ? "border-emerald-300 bg-gradient-to-b from-emerald-400 to-emerald-500 text-white shadow-emerald-500/30"
+        ? "border-emerald-300 bg-gradient-to-b from-emerald-400 to-emerald-500 text-white shadow-emerald-500/30 dark:border-emerald-700 dark:from-emerald-700 dark:to-emerald-900 dark:shadow-emerald-950/40"
         : "border-slate-300 bg-gradient-to-b from-slate-100 to-slate-200 text-slate-700 shadow-slate-300/30 dark:border-slate-600 dark:from-slate-700 dark:to-slate-800 dark:text-slate-200";
 
   return (
@@ -496,7 +496,7 @@ function VoteCard({
       type="button"
       onClick={onPick}
       disabled={disabled}
-      className={`relative mx-auto flex w-full max-w-[390px] flex-col overflow-hidden rounded-3xl border bg-gradient-to-b p-4 text-left shadow-md transition duration-200 hover:-translate-y-0.5 hover:shadow-xl disabled:cursor-not-allowed disabled:opacity-60 aspect-[5/7] sm:p-5 ${toneClasses} ${swipeHint ? "ring-4 ring-emerald-300/50" : ""}`}
+      className={`relative mx-auto flex w-full max-w-[390px] flex-col overflow-hidden rounded-3xl border bg-gradient-to-b p-4 text-left shadow-md transition duration-200 hover:-translate-y-0.5 hover:shadow-xl dark:shadow-black/35 disabled:cursor-not-allowed disabled:opacity-60 aspect-[5/7] sm:p-5 ${toneClasses} ${swipeHint ? "ring-4 ring-emerald-300/50 dark:ring-emerald-500/45" : ""}`}
     >
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(80%_120%_at_90%_0%,rgba(255,255,255,0.75),transparent_60%)] dark:bg-[radial-gradient(80%_120%_at_90%_0%,rgba(51,65,85,0.45),transparent_62%)]" />
       <div className="relative flex h-full flex-col">
@@ -509,71 +509,73 @@ function VoteCard({
           </span>
         </div>
 
-        <div className="mt-3 flex h-32 items-center justify-center gap-2 rounded-2xl border border-white/70 bg-white/70 px-2 py-2 shadow-inner dark:border-slate-700 dark:bg-slate-900/65 sm:h-36 md:h-40">
-          {activeAssets.length ? (
-            activeAssets.map((asset) => {
-              const params = new URLSearchParams({ assetKey: asset.key });
-              if (SPRITE_PROVIDER !== "tppc") params.set("prefer", SPRITE_PROVIDER);
-              const spriteUrl = `/api/sprites?${params.toString()}`;
-              const imageFailed = failedAssetKeys.includes(asset.key);
+        <div className="flex flex-1 flex-col justify-center">
+          <div className="mt-3 flex h-32 items-center justify-center gap-2 rounded-2xl border border-white/70 bg-white/70 px-2 py-2 shadow-inner dark:border-slate-700 dark:bg-slate-900/65 sm:h-36 md:h-40">
+            {activeAssets.length ? (
+              activeAssets.map((asset) => {
+                const params = new URLSearchParams({ assetKey: asset.key });
+                if (SPRITE_PROVIDER !== "tppc") params.set("prefer", SPRITE_PROVIDER);
+                const spriteUrl = `/api/sprites?${params.toString()}`;
+                const imageFailed = failedAssetKeys.includes(asset.key);
 
-              return imageFailed ? (
-                <span
-                  key={`${asset.key}-missing`}
-                  className="inline-flex h-24 w-24 items-center justify-center rounded-xl border border-dashed border-slate-300 text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:border-slate-600 dark:text-slate-500"
-                >
-                  No sprite
-                </span>
-              ) : (
-                <Image
-                  key={asset.key}
-                  src={spriteUrl}
-                  alt={`${displayAssetName(asset)} sprite`}
-                  width={96}
-                  height={96}
-                  unoptimized
-                  className={`h-24 w-24 object-contain sm:h-28 sm:w-28 ${SPRITE_PROVIDER === "pokeapi" ? "sprite-gold-filter" : ""}`}
-                  style={{ imageRendering: "pixelated" }}
-                  onError={() => {
-                    setFailedAssetKeys((prev) => (prev.includes(asset.key) ? prev : [...prev, asset.key]));
-                  }}
-                />
-              );
-            })
-          ) : (
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-              No sprite
-            </span>
-          )}
+                return imageFailed ? (
+                  <span
+                    key={`${asset.key}-missing`}
+                    className="inline-flex h-24 w-24 items-center justify-center rounded-xl border border-dashed border-slate-300 text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:border-slate-600 dark:text-slate-500"
+                  >
+                    No sprite
+                  </span>
+                ) : (
+                  <Image
+                    key={asset.key}
+                    src={spriteUrl}
+                    alt={`${displayAssetName(asset)} sprite`}
+                    width={96}
+                    height={96}
+                    unoptimized
+                    className={`h-24 w-24 object-contain sm:h-28 sm:w-28 ${SPRITE_PROVIDER === "pokeapi" ? "sprite-gold-filter" : ""}`}
+                    style={{ imageRendering: "pixelated" }}
+                    onError={() => {
+                      setFailedAssetKeys((prev) => (prev.includes(asset.key) ? prev : [...prev, asset.key]));
+                    }}
+                  />
+                );
+              })
+            ) : (
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                No sprite
+              </span>
+            )}
+          </div>
+
+          <h2 className="mt-3 text-center text-2xl font-black tracking-tight text-slate-900 [font-family:var(--font-display)] dark:text-slate-100 sm:text-[2rem]">
+            {titleNames.length > 1 ? (
+              <>
+                <span className="block line-clamp-1 leading-tight">{titleNames[0]}</span>
+                <span className="block text-lg leading-none text-slate-500 dark:text-slate-400">+</span>
+                <span className="block line-clamp-1 leading-tight">{titleNames[1]}</span>
+              </>
+            ) : (
+              <span className="block line-clamp-2 leading-tight">{titleNames[0]}</span>
+            )}
+          </h2>
+          <p className="mt-2 line-clamp-2 text-center text-sm text-slate-700 dark:text-slate-300">{prompt}</p>
+          <div className="mt-3 grid gap-1.5 text-left">
+            {rarityTags.map((tag) => (
+              <div
+                key={`${tag.key}-rarity`}
+                className="rounded-xl border border-slate-300 bg-white/85 px-2.5 py-1.5 text-[10px] font-semibold tracking-wide text-slate-700 dark:border-slate-600 dark:bg-slate-900/85 dark:text-slate-300"
+              >
+                <p className="truncate text-[10px] font-bold uppercase tracking-wide">{tag.name}</p>
+                <p className="mt-0.5 text-[10px] font-semibold text-slate-700 dark:text-slate-300">
+                  M {tag.male} • F {tag.female} • G {tag.genderless} • U {tag.ungendered} • T {tag.total}
+                </p>
+              </div>
+            ))}
+          </div>
         </div>
 
-        <h2 className="mt-3 text-center text-2xl font-black tracking-tight text-slate-900 [font-family:var(--font-display)] dark:text-slate-100 sm:text-[2rem]">
-          {titleNames.length > 1 ? (
-            <>
-              <span className="block line-clamp-1 leading-tight">{titleNames[0]}</span>
-              <span className="block text-lg leading-none text-slate-500 dark:text-slate-400">+</span>
-              <span className="block line-clamp-1 leading-tight">{titleNames[1]}</span>
-            </>
-          ) : (
-            <span className="block line-clamp-2 leading-tight">{titleNames[0]}</span>
-          )}
-        </h2>
-        <p className="mt-2 line-clamp-2 text-center text-sm text-slate-700 dark:text-slate-300">{prompt}</p>
-        <div className="mt-3 grid gap-1.5 text-left">
-          {rarityTags.map((tag) => (
-            <div
-              key={`${tag.key}-rarity`}
-              className="rounded-xl border border-slate-300 bg-white/85 px-2.5 py-1.5 text-[10px] font-semibold tracking-wide text-slate-700 dark:border-slate-600 dark:bg-slate-900/85 dark:text-slate-300"
-            >
-              <p className="truncate text-[10px] font-bold uppercase tracking-wide">{tag.name}</p>
-              <p className="mt-0.5 text-[10px] font-semibold text-slate-700 dark:text-slate-300">
-                M {tag.male} • F {tag.female} • G {tag.genderless} • U {tag.ungendered} • T {tag.total}
-              </p>
-            </div>
-          ))}
-        </div>
-
-        <div className="mt-auto flex items-center justify-between gap-2 pt-3">
+        <div className="mt-3 flex items-center justify-between gap-2">
           <span className="rounded-full bg-slate-900 px-3 py-1 text-[11px] font-semibold text-white dark:bg-slate-700">
             Total {raritySummary(activeAssets)}
           </span>
