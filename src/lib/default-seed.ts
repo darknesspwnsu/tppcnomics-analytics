@@ -13,18 +13,18 @@ export type SeedPair = {
 };
 
 export const DEFAULT_ASSETS: SeedAsset[] = [
-  { key: "Charizard|M", label: "Charizard M", tier: "Apex" },
-  { key: "Gengar|M", label: "Gengar M", tier: "Apex" },
-  { key: "Mewtwo|?", label: "Mewtwo (?)", tier: "Apex" },
-  { key: "Dragonite|M", label: "Dragonite M", tier: "High" },
-  { key: "Garchomp|M", label: "Garchomp M", tier: "High" },
-  { key: "Lucario|M", label: "Lucario M", tier: "High" },
-  { key: "Blaziken|M", label: "Blaziken M", tier: "Mid" },
-  { key: "Metagross|?", label: "Metagross (?)", tier: "Mid" },
-  { key: "Tyranitar|M", label: "Tyranitar M", tier: "Mid" },
-  { key: "Absol|M", label: "Absol M", tier: "Mid" },
-  { key: "Gardevoir|F", label: "Gardevoir F", tier: "Mid" },
-  { key: "Salamence|M", label: "Salamence M", tier: "High" },
+  { key: "Charizard|M", label: "Charizard ♂", tier: "Apex" },
+  { key: "Gengar|M", label: "Gengar ♂", tier: "Apex" },
+  { key: "Mewtwo|?", label: "Mewtwo ⚲", tier: "Apex" },
+  { key: "Dragonite|M", label: "Dragonite ♂", tier: "High" },
+  { key: "Garchomp|M", label: "Garchomp ♂", tier: "High" },
+  { key: "Lucario|M", label: "Lucario ♂", tier: "High" },
+  { key: "Blaziken|M", label: "Blaziken ♂", tier: "Mid" },
+  { key: "Metagross|?", label: "Metagross ⚲", tier: "Mid" },
+  { key: "Tyranitar|M", label: "Tyranitar ♂", tier: "Mid" },
+  { key: "Absol|M", label: "Absol ♂", tier: "Mid" },
+  { key: "Gardevoir|F", label: "Gardevoir ♀", tier: "Mid" },
+  { key: "Salamence|M", label: "Salamence ♂", tier: "High" },
 ];
 
 export const DEFAULT_PAIRS: SeedPair[] = [

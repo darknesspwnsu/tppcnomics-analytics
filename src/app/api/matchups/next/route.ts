@@ -106,6 +106,7 @@ export async function GET(request: NextRequest) {
                 label: true,
                 tier: true,
                 imageUrl: true,
+                metadata: true,
               },
             },
             rightAsset: {
@@ -115,6 +116,7 @@ export async function GET(request: NextRequest) {
                 label: true,
                 tier: true,
                 imageUrl: true,
+                metadata: true,
               },
             },
           },
@@ -149,6 +151,7 @@ export async function GET(request: NextRequest) {
         label: true,
         tier: true,
         imageUrl: true,
+        metadata: true,
       },
     });
     const assetByKey = new Map(sideAssets.map((asset) => [asset.key, asset]));

@@ -4,6 +4,14 @@ import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+type AssetMetadata = {
+  seedRange?: string;
+  minX?: number;
+  maxX?: number;
+  midX?: number;
+  [key: string]: unknown;
+};
+
 type Asset = {
   id: string;
   key: string;
@@ -11,6 +19,7 @@ type Asset = {
   tier: string | null;
   imageUrl: string | null;
   elo: number | null;
+  metadata: AssetMetadata | null;
 };
 
 type MatchupResponse = {
@@ -54,6 +63,44 @@ const SPRITE_PROVIDER = process.env.NEXT_PUBLIC_SPRITE_PROVIDER === "pokeapi" ? 
 
 function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
+}
+
+function parseAssetNameAndGender(assetKey: string): { name: string; gender: string } {
+  const [rawNamePart, rawGenderPart] = String(assetKey || "").split("|");
+  return {
+    name: String(rawNamePart || "").trim(),
+    gender: String(rawGenderPart || "").trim().toUpperCase(),
+  };
+}
+
+function genderSymbol(gender: string): string {
+  const normalized = String(gender || "").trim().toUpperCase();
+  if (normalized === "M") return "♂";
+  if (normalized === "F") return "♀";
+  if (normalized === "?") return "⚲";
+  return "";
+}
+
+function displayAssetName(asset: Asset): string {
+  const parsed = parseAssetNameAndGender(asset.key);
+  const symbol = genderSymbol(parsed.gender);
+  const fallback = String(asset.label || "Unknown")
+    .trim()
+    .replace(/\s+(?:M|F|\(\?\)|♂|♀|⚲)$/u, "");
+  const base = parsed.name || fallback || "Unknown";
+  return symbol ? `${base} ${symbol}` : base;
+}
+
+function rarityLabel(asset: Asset): string {
+  const metadata = asset.metadata && typeof asset.metadata === "object" ? asset.metadata : null;
+  const seedRange = metadata?.seedRange;
+  if (typeof seedRange === "string" && seedRange.trim()) {
+    return seedRange.trim();
+  }
+  if (asset.tier && asset.tier.trim()) {
+    return `${asset.tier} tier`;
+  }
+  return "Unknown";
 }
 
 export default function Home() {
@@ -388,10 +435,15 @@ function VoteCard({
 }) {
   const [failedAssetKeys, setFailedAssetKeys] = useState<string[]>([]);
   const activeAssets = assets.slice(0, 2);
-  const title = activeAssets.length ? activeAssets.map((asset) => asset.label).join(" + ") : "Loading...";
+  const title = activeAssets.length ? activeAssets.map((asset) => displayAssetName(asset)).join(" + ") : "Loading...";
   const tierLabel = activeAssets.length
     ? [...new Set(activeAssets.map((asset) => asset.tier || "Unranked"))].join(" / ")
     : "Unranked";
+  const rarityTags = activeAssets.map((asset) => ({
+    key: asset.key,
+    name: displayAssetName(asset),
+    rarity: rarityLabel(asset),
+  }));
   const avgElo = activeAssets.length
     ? activeAssets.reduce((sum, asset) => sum + (Number(asset.elo) || 1500), 0) / activeAssets.length
     : 1500;
@@ -436,7 +488,7 @@ function VoteCard({
                 <Image
                   key={asset.key}
                   src={spriteUrl}
-                  alt={`${asset.label} sprite`}
+                  alt={`${displayAssetName(asset)} sprite`}
                   width={96}
                   height={96}
                   unoptimized
@@ -457,6 +509,16 @@ function VoteCard({
           {title}
         </h2>
         <p className="mt-2 line-clamp-2 text-sm text-slate-700">{prompt}</p>
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {rarityTags.map((tag) => (
+            <span
+              key={`${tag.key}-rarity`}
+              className="rounded-full border border-slate-300 bg-white/90 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-700"
+            >
+              {tag.name}: {tag.rarity}
+            </span>
+          ))}
+        </div>
 
         <div className="mt-4 flex items-center justify-between gap-2">
           <span className="rounded-full bg-slate-900 px-3 py-1 text-[11px] font-semibold text-white">{tierLabel}</span>

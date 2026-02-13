@@ -13,6 +13,7 @@ export function canonicalPairKey(a: string | string[], b: string | string[]): st
 
 export function labelFromAssetKey(assetKey: string): string {
   const [name, gender] = String(assetKey || "Unknown").split("|");
-  const normalizedGender = gender === "?" ? "(?)" : gender || "";
-  return `${name || "Unknown"} ${normalizedGender}`.trim();
+  const normalized = String(gender || "").trim().toUpperCase();
+  const symbol = normalized === "M" ? "♂" : normalized === "F" ? "♀" : normalized === "?" ? "⚲" : "";
+  return `${name || "Unknown"} ${symbol}`.trim();
 }
