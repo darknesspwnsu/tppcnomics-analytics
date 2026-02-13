@@ -2,6 +2,7 @@ import { VoteSide, VoteSource } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
+import { applyEloFromVotesBundles } from "@/lib/elo";
 import { prisma } from "@/lib/prisma";
 import { getOrCreateVisitorId, issueVisitorCookie } from "@/lib/visitor-session";
 import { computeStreakAndXp } from "@/lib/voter";
@@ -34,9 +35,22 @@ export async function POST(request: NextRequest) {
       select: {
         id: true,
         pairKey: true,
+        matchupMode: true,
         active: true,
+        leftAssetKeys: true,
+        rightAssetKeys: true,
         leftAssetId: true,
         rightAssetId: true,
+        leftAsset: {
+          select: {
+            key: true,
+          },
+        },
+        rightAsset: {
+          select: {
+            key: true,
+          },
+        },
       },
     });
 
@@ -65,11 +79,43 @@ export async function POST(request: NextRequest) {
     const progression = computeStreakAndXp(existingVoter);
     const selectedSide = parsed.data.selectedSide as VoteSide;
 
+    const leftAssetKeys = pair.leftAssetKeys.length ? pair.leftAssetKeys : [pair.leftAsset.key];
+    const rightAssetKeys = pair.rightAssetKeys.length ? pair.rightAssetKeys : [pair.rightAsset.key];
+    const allAssetKeys = [...new Set([...leftAssetKeys, ...rightAssetKeys])];
+
+    const sideAssets = await prisma.asset.findMany({
+      where: {
+        key: {
+          in: allAssetKeys,
+        },
+      },
+      select: {
+        id: true,
+        key: true,
+      },
+    });
+    const assetIdByKey = new Map(sideAssets.map((asset) => [asset.key, asset.id]));
+    const leftAssetIds = leftAssetKeys.map((key) => assetIdByKey.get(key)).filter(Boolean) as string[];
+    const rightAssetIds = rightAssetKeys.map((key) => assetIdByKey.get(key)).filter(Boolean) as string[];
+
+    if (!leftAssetIds.length || !rightAssetIds.length) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Voting pair assets could not be resolved.",
+        },
+        { status: 500 }
+      );
+    }
+
+    const votesLeft = selectedSide === VoteSide.LEFT ? 1 : selectedSide === VoteSide.RIGHT ? 0 : 0;
+    const votesRight = selectedSide === VoteSide.RIGHT ? 1 : selectedSide === VoteSide.LEFT ? 0 : 0;
+
     const selectedAssetId =
       selectedSide === VoteSide.LEFT
-        ? pair.leftAssetId
+        ? leftAssetIds[0]
         : selectedSide === VoteSide.RIGHT
-          ? pair.rightAssetId
+          ? rightAssetIds[0]
           : null;
 
     const result = await prisma.$transaction(async (tx) => {
@@ -109,9 +155,107 @@ export async function POST(request: NextRequest) {
             sessionSource: session.source,
             hadCookie: session.hadCookie,
             cookieWasValid: session.cookieWasValid,
+            matchupMode: pair.matchupMode,
+            leftAssets: leftAssetKeys,
+            rightAssets: rightAssetKeys,
           },
         },
       });
+
+      if (selectedSide !== VoteSide.SKIP) {
+        const allAssetIds = [...new Set([...leftAssetIds, ...rightAssetIds])];
+        const existingScores = await tx.assetScore.findMany({
+          where: {
+            assetId: {
+              in: allAssetIds,
+            },
+          },
+          select: {
+            assetId: true,
+            elo: true,
+            wins: true,
+            losses: true,
+            ties: true,
+            pollsCount: true,
+            votesFor: true,
+            votesAgainst: true,
+          },
+        });
+        const existingByAssetId = new Map(existingScores.map((score) => [score.assetId, score]));
+
+        const elo = applyEloFromVotesBundles({
+          leftScores: leftAssetIds.map((assetId) => existingByAssetId.get(assetId)?.elo ?? 1500),
+          rightScores: rightAssetIds.map((assetId) => existingByAssetId.get(assetId)?.elo ?? 1500),
+          votesLeft,
+          votesRight,
+          minVotes: 1,
+        });
+
+        const leftOutcome = elo.result === "left" ? "win" : elo.result === "right" ? "loss" : "tie";
+        const rightOutcome = elo.result === "right" ? "win" : elo.result === "left" ? "loss" : "tie";
+
+        for (let idx = 0; idx < leftAssetIds.length; idx += 1) {
+          const assetId = leftAssetIds[idx];
+          const base = existingByAssetId.get(assetId);
+          const nextElo = elo.leftScores[idx] ?? base?.elo ?? 1500;
+
+          await tx.assetScore.upsert({
+            where: { assetId },
+            create: {
+              assetId,
+              elo: nextElo,
+              wins: leftOutcome === "win" ? 1 : 0,
+              losses: leftOutcome === "loss" ? 1 : 0,
+              ties: leftOutcome === "tie" ? 1 : 0,
+              pollsCount: 1,
+              votesFor: votesLeft,
+              votesAgainst: votesRight,
+              lastPollAt: now,
+            },
+            update: {
+              elo: nextElo,
+              wins: (base?.wins ?? 0) + (leftOutcome === "win" ? 1 : 0),
+              losses: (base?.losses ?? 0) + (leftOutcome === "loss" ? 1 : 0),
+              ties: (base?.ties ?? 0) + (leftOutcome === "tie" ? 1 : 0),
+              pollsCount: (base?.pollsCount ?? 0) + 1,
+              votesFor: (base?.votesFor ?? 0) + votesLeft,
+              votesAgainst: (base?.votesAgainst ?? 0) + votesRight,
+              lastPollAt: now,
+            },
+          });
+        }
+
+        for (let idx = 0; idx < rightAssetIds.length; idx += 1) {
+          const assetId = rightAssetIds[idx];
+          const base = existingByAssetId.get(assetId);
+          const nextElo = elo.rightScores[idx] ?? base?.elo ?? 1500;
+
+          await tx.assetScore.upsert({
+            where: { assetId },
+            create: {
+              assetId,
+              elo: nextElo,
+              wins: rightOutcome === "win" ? 1 : 0,
+              losses: rightOutcome === "loss" ? 1 : 0,
+              ties: rightOutcome === "tie" ? 1 : 0,
+              pollsCount: 1,
+              votesFor: votesRight,
+              votesAgainst: votesLeft,
+              lastPollAt: now,
+            },
+            update: {
+              elo: nextElo,
+              wins: (base?.wins ?? 0) + (rightOutcome === "win" ? 1 : 0),
+              losses: (base?.losses ?? 0) + (rightOutcome === "loss" ? 1 : 0),
+              ties: (base?.ties ?? 0) + (rightOutcome === "tie" ? 1 : 0),
+              pollsCount: (base?.pollsCount ?? 0) + 1,
+              votesFor: (base?.votesFor ?? 0) + votesRight,
+              votesAgainst: (base?.votesAgainst ?? 0) + votesLeft,
+              lastPollAt: now,
+            },
+          });
+        }
+      }
 
       return { voter, vote };
     });

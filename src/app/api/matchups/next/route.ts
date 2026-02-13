@@ -137,6 +137,51 @@ export async function GET(request: NextRequest) {
       return emptyResponse;
     }
 
+    const leftAssetKeys = pair.leftAssetKeys.length ? pair.leftAssetKeys : [pair.leftAsset.key];
+    const rightAssetKeys = pair.rightAssetKeys.length ? pair.rightAssetKeys : [pair.rightAsset.key];
+    const uniqueAssetKeys = [...new Set([...leftAssetKeys, ...rightAssetKeys])];
+
+    const sideAssets = await prisma.asset.findMany({
+      where: { key: { in: uniqueAssetKeys } },
+      select: {
+        id: true,
+        key: true,
+        label: true,
+        tier: true,
+        imageUrl: true,
+      },
+    });
+    const assetByKey = new Map(sideAssets.map((asset) => [asset.key, asset]));
+
+    const sideAssetScores = await prisma.assetScore.findMany({
+      where: {
+        assetId: {
+          in: sideAssets.map((asset) => asset.id),
+        },
+      },
+      select: {
+        assetId: true,
+        elo: true,
+      },
+    });
+    const eloByAssetId = new Map(sideAssetScores.map((score) => [score.assetId, score.elo]));
+
+    const withElo = (assetKey: string) => {
+      const asset = assetByKey.get(assetKey);
+      if (!asset) return null;
+      return {
+        ...asset,
+        elo: Number.isFinite(eloByAssetId.get(asset.id)) ? Number(eloByAssetId.get(asset.id)) : null,
+      };
+    };
+
+    const leftAssets = leftAssetKeys
+      .map(withElo)
+      .filter((asset): asset is NonNullable<ReturnType<typeof withElo>> => Boolean(asset));
+    const rightAssets = rightAssetKeys
+      .map(withElo)
+      .filter((asset): asset is NonNullable<ReturnType<typeof withElo>> => Boolean(asset));
+
     const response = NextResponse.json({
       ok: true,
       pair: {
@@ -144,8 +189,11 @@ export async function GET(request: NextRequest) {
         pairKey: pair.pairKey,
         prompt: pair.prompt,
         featured: pair.featured,
-        leftAsset: pair.leftAsset,
-        rightAsset: pair.rightAsset,
+        matchupMode: pair.matchupMode,
+        leftAssets,
+        rightAssets,
+        leftAsset: leftAssets[0] || { ...pair.leftAsset, elo: null },
+        rightAsset: rightAssets[0] || { ...pair.rightAsset, elo: null },
       },
       voter: {
         visitorId: session.visitorId,

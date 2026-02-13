@@ -8,7 +8,8 @@ import {
 } from "@/lib/marketpoll-seeds";
 import { canonicalPairKey } from "@/lib/pair-key";
 
-const MIN_ACTIVE_PAIR_TARGET = 300;
+const BOOTSTRAP_CURSOR_SOURCE = "web_bootstrap_seed_version";
+const BOOTSTRAP_SEED_VERSION = "2026-02-13-matchup-modes-elo-v1";
 
 async function seedFromMarketpollCsv(prisma: PrismaClient): Promise<boolean> {
   const csvText = loadMarketpollSeedCsvFromRepo();
@@ -46,13 +47,16 @@ async function seedFromMarketpollCsv(prisma: PrismaClient): Promise<boolean> {
   const assetIdByKey = new Map(seededAssets.map((asset) => [asset.key, asset.id]));
   const pairRows = parsed.pairs
     .map((pair) => {
-      const leftAssetId = assetIdByKey.get(pair.leftKey);
-      const rightAssetId = assetIdByKey.get(pair.rightKey);
+      const leftAssetId = assetIdByKey.get(pair.leftKeys[0]);
+      const rightAssetId = assetIdByKey.get(pair.rightKeys[0]);
       if (!leftAssetId || !rightAssetId || leftAssetId === rightAssetId) return null;
       return {
-        pairKey: canonicalPairKey(pair.leftKey, pair.rightKey),
+        pairKey: canonicalPairKey(pair.leftKeys, pair.rightKeys),
         leftAssetId,
         rightAssetId,
+        leftAssetKeys: pair.leftKeys,
+        rightAssetKeys: pair.rightKeys,
+        matchupMode: pair.matchupMode,
         prompt: pair.prompt,
         featured: Boolean(pair.featured),
         active: true,
@@ -62,6 +66,9 @@ async function seedFromMarketpollCsv(prisma: PrismaClient): Promise<boolean> {
     pairKey: string;
     leftAssetId: string;
     rightAssetId: string;
+    leftAssetKeys: string[];
+    rightAssetKeys: string[];
+    matchupMode: string;
     prompt: string;
     featured: boolean;
     active: boolean;
@@ -109,6 +116,9 @@ async function seedFallbackDefaults(prisma: PrismaClient): Promise<void> {
       pairKey: canonicalPairKey(pair.leftKey, pair.rightKey),
       leftAssetId,
       rightAssetId,
+      leftAssetKeys: [pair.leftKey],
+      rightAssetKeys: [pair.rightKey],
+      matchupMode: "1v1",
       prompt: pair.prompt,
       featured: Boolean(pair.featured),
       active: true,
@@ -117,6 +127,9 @@ async function seedFallbackDefaults(prisma: PrismaClient): Promise<void> {
     pairKey: string;
     leftAssetId: string;
     rightAssetId: string;
+    leftAssetKeys: string[];
+    rightAssetKeys: string[];
+    matchupMode: string;
     prompt: string;
     featured: boolean;
     active: boolean;
@@ -129,13 +142,12 @@ async function seedFallbackDefaults(prisma: PrismaClient): Promise<void> {
 }
 
 export async function ensureBootstrapData(prisma: PrismaClient): Promise<void> {
-  const existing = await prisma.votingPair.count({
-    where: {
-      active: true,
-    },
+  const cursor = await prisma.ingestionCursor.findUnique({
+    where: { source: BOOTSTRAP_CURSOR_SOURCE },
+    select: { lastValue: true },
   });
 
-  if (existing >= MIN_ACTIVE_PAIR_TARGET) return;
+  if (cursor?.lastValue === BOOTSTRAP_SEED_VERSION) return;
 
   try {
     await seedFromMarketpollCsv(prisma);
@@ -148,4 +160,15 @@ export async function ensureBootstrapData(prisma: PrismaClient): Promise<void> {
     }
     await seedFallbackDefaults(prisma);
   }
+
+  await prisma.ingestionCursor.upsert({
+    where: { source: BOOTSTRAP_CURSOR_SOURCE },
+    create: {
+      source: BOOTSTRAP_CURSOR_SOURCE,
+      lastValue: BOOTSTRAP_SEED_VERSION,
+    },
+    update: {
+      lastValue: BOOTSTRAP_SEED_VERSION,
+    },
+  });
 }

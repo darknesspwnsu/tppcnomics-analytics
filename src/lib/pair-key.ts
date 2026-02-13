@@ -1,6 +1,13 @@
-export function canonicalPairKey(a: string, b: string): string {
-  const left = String(a || "").trim();
-  const right = String(b || "").trim();
+function toBundleKey(assetOrAssets: string | string[]): string {
+  const list = Array.isArray(assetOrAssets) ? assetOrAssets : [assetOrAssets];
+  return [...new Set(list.map((entry) => String(entry || "").trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b))
+    .join(" + ");
+}
+
+export function canonicalPairKey(a: string | string[], b: string | string[]): string {
+  const left = toBundleKey(a);
+  const right = toBundleKey(b);
   return [left, right].sort((x, y) => x.localeCompare(y)).join("::");
 }
 

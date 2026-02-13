@@ -36,8 +36,14 @@ const PROMPT_TEMPLATES = [
 
 const PAIR_NEIGHBOR_WINDOW = 8;
 const MIN_PAIRS_PER_ASSET = 2;
-const MAX_GENERATED_PAIRS = 1600;
-const FEATURED_PAIR_COUNT = 120;
+const MAX_GENERATED_PAIRS_1V1 = 1600;
+const MAX_GENERATED_PAIRS_PER_MULTI_MODE = 500;
+const MAX_MULTI_ATTEMPTS = 120_000;
+const MAX_ASSET_TIER_SPREAD = 3;
+const FEATURED_PAIR_COUNT = 180;
+
+export const MARKETPOLL_MATCHUP_MODES = ["1v1", "1v2", "2v1", "2v2"] as const;
+export type MatchupMode = (typeof MARKETPOLL_MATCHUP_MODES)[number];
 
 export type ParsedMarketSeedAsset = {
   assetKey: string;
@@ -47,11 +53,13 @@ export type ParsedMarketSeedAsset = {
   midX: number;
   tierId: string;
   tierIndex: number;
+  gender: string;
 };
 
 export type GeneratedMarketSeedPair = {
-  leftKey: string;
-  rightKey: string;
+  leftKeys: string[];
+  rightKeys: string[];
+  matchupMode: MatchupMode;
   prompt: string;
   featured: boolean;
 };
@@ -60,6 +68,7 @@ export type ParsedMarketSeedData = {
   assets: ParsedMarketSeedAsset[];
   pairs: GeneratedMarketSeedPair[];
   errors: string[];
+  matchupModes: MatchupMode[];
 };
 
 type ParsedRateToken = {
@@ -69,6 +78,50 @@ type ParsedRateToken = {
   needsUnit?: boolean;
   error?: string;
 };
+
+type Bundle = {
+  assetKeys: string[];
+  minX: number;
+  maxX: number;
+  midX: number;
+  tierIndex: number;
+  gender: string;
+  assets: ParsedMarketSeedAsset[];
+};
+
+type CandidatePair = {
+  leftKeys: string[];
+  rightKeys: string[];
+  matchupMode: MatchupMode;
+  pairKey: string;
+  closeness: number;
+  combinedMid: number;
+};
+
+function normalizeMatchupModes(raw?: string | MatchupMode[] | null): MatchupMode[] {
+  const values = Array.isArray(raw)
+    ? raw
+    : String(raw || "")
+        .split(/[,\s]+/)
+        .map((value) => value.trim())
+        .filter(Boolean);
+
+  const normalized = [...new Set(values.map((value) => value.toLowerCase()))].filter((value): value is MatchupMode =>
+    MARKETPOLL_MATCHUP_MODES.includes(value as MatchupMode)
+  );
+
+  if (!normalized.length) {
+    return [...MARKETPOLL_MATCHUP_MODES];
+  }
+
+  return [...normalized].sort(
+    (a, b) => MARKETPOLL_MATCHUP_MODES.indexOf(a as MatchupMode) - MARKETPOLL_MATCHUP_MODES.indexOf(b as MatchupMode)
+  ) as MatchupMode[];
+}
+
+export function getConfiguredMatchupModes(): MatchupMode[] {
+  return normalizeMatchupModes(process.env.MARKETPOLL_MATCHUP_MODES);
+}
 
 function parseCsvRow(line: string): string[] {
   const out: string[] = [];
@@ -211,14 +264,14 @@ function parseSeedRange(rawRange: string): {
   return { ok: true, minX, maxX, midX, tierId: tier.id, tierIndex: tier.index };
 }
 
-function rangesOverlap(a: ParsedMarketSeedAsset, b: ParsedMarketSeedAsset): boolean {
-  return Math.min(a.maxX, b.maxX) > Math.max(a.minX, b.minX);
+function rangesOverlap(minA: number, maxA: number, minB: number, maxB: number): boolean {
+  return Math.min(maxA, maxB) > Math.max(minA, minB);
 }
 
-function isPairCompatible(a: ParsedMarketSeedAsset, b: ParsedMarketSeedAsset): boolean {
-  const tierDiff = Math.abs(a.tierIndex - b.tierIndex);
+function isBundleCompatible(left: Bundle, right: Bundle): boolean {
+  const tierDiff = Math.abs(left.tierIndex - right.tierIndex);
   if (tierDiff > 1) return false;
-  if (tierDiff === 1 && !rangesOverlap(a, b)) return false;
+  if (tierDiff === 1 && !rangesOverlap(left.minX, left.maxX, right.minX, right.maxX)) return false;
   return true;
 }
 
@@ -230,34 +283,163 @@ function stringHash(value: string): number {
   return hash;
 }
 
+function createSeededRng(seedValue: number): () => number {
+  let state = (seedValue >>> 0) || 1;
+  return () => {
+    state = (1664525 * state + 1013904223) >>> 0;
+    return state / 4294967296;
+  };
+}
+
 function buildPrompt(pairKey: string): string {
   const idx = stringHash(pairKey) % PROMPT_TEMPLATES.length;
   return PROMPT_TEMPLATES[idx];
 }
 
-function generatePairs(assets: ParsedMarketSeedAsset[]): GeneratedMarketSeedPair[] {
+function sampleUniqueAssetKeys(
+  keys: string[],
+  count: number,
+  rng: () => number,
+  blocked = new Set<string>()
+): string[] | null {
+  const need = Math.max(1, Math.trunc(Number(count) || 1));
+  const pool = keys.filter((key) => !blocked.has(key));
+  if (pool.length < need) return null;
+
+  const chosen = new Set<string>();
+  let guard = 0;
+  while (chosen.size < need && guard < need * 30) {
+    const idx = Math.floor(Math.abs(rng()) * pool.length) % pool.length;
+    chosen.add(pool[idx]);
+    guard += 1;
+  }
+
+  if (chosen.size < need) {
+    for (const key of pool) {
+      chosen.add(key);
+      if (chosen.size >= need) break;
+    }
+  }
+
+  if (chosen.size < need) return null;
+  return [...chosen].sort((a, b) => a.localeCompare(b));
+}
+
+function bundleFromKeys(keys: string[], byKey: Map<string, ParsedMarketSeedAsset>): Bundle | null {
+  const ordered = [...new Set(keys)].sort((a, b) => a.localeCompare(b));
+  if (!ordered.length) return null;
+
+  const assets = ordered.map((key) => byKey.get(key)).filter(Boolean) as ParsedMarketSeedAsset[];
+  if (assets.length !== ordered.length) return null;
+
+  const minX = assets.reduce((sum, asset) => sum + asset.minX, 0);
+  const maxX = assets.reduce((sum, asset) => sum + asset.maxX, 0);
+  const midX = assets.reduce((sum, asset) => sum + asset.midX, 0);
+  const tier = tierForMidX(midX);
+  const genderSet = new Set(assets.map((asset) => asset.gender));
+  const gender = genderSet.size === 1 ? assets[0].gender : "";
+
+  return {
+    assetKeys: ordered,
+    minX,
+    maxX,
+    midX,
+    tierIndex: tier.index,
+    gender,
+    assets,
+  };
+}
+
+function parseModeSizes(mode: MatchupMode): { leftSize: number; rightSize: number } {
+  const match = mode.match(/^(\d+)v(\d+)$/);
+  const leftSize = Number(match?.[1] || 1);
+  const rightSize = Number(match?.[2] || 1);
+  return { leftSize, rightSize };
+}
+
+function buildMultiModeCandidates(assets: ParsedMarketSeedAsset[], mode: MatchupMode, targetCount: number): CandidatePair[] {
+  const byKey = new Map(assets.map((asset) => [asset.assetKey, asset]));
+  const allKeys = [...byKey.keys()];
+  const seen = new Set<string>();
+  const out: CandidatePair[] = [];
+  const { leftSize, rightSize } = parseModeSizes(mode);
+
+  const rng = createSeededRng(stringHash(`${mode}:${allKeys.join("|")}`));
+
+  const runPass = (strictGender: boolean) => {
+    for (let attempt = 0; attempt < MAX_MULTI_ATTEMPTS && out.length < targetCount; attempt += 1) {
+      const leftKeys = sampleUniqueAssetKeys(allKeys, leftSize, rng);
+      if (!leftKeys) continue;
+
+      const rightKeys = sampleUniqueAssetKeys(allKeys, rightSize, rng, new Set(leftKeys));
+      if (!rightKeys) continue;
+
+      const left = bundleFromKeys(leftKeys, byKey);
+      const right = bundleFromKeys(rightKeys, byKey);
+      if (!left || !right) continue;
+
+      const tierIndexes = [...left.assets, ...right.assets]
+        .map((asset) => Number(asset.tierIndex))
+        .filter((value) => Number.isFinite(value));
+      if (tierIndexes.length >= 2) {
+        const spread = Math.max(...tierIndexes) - Math.min(...tierIndexes);
+        if (spread > MAX_ASSET_TIER_SPREAD) continue;
+      }
+
+      if (strictGender) {
+        if (!left.gender || !right.gender) continue;
+        if (left.gender !== right.gender) continue;
+      }
+
+      if (!isBundleCompatible(left, right)) continue;
+
+      const pairKey = canonicalPairKey(left.assetKeys, right.assetKeys);
+      if (seen.has(pairKey)) continue;
+      seen.add(pairKey);
+
+      const closeness = Math.abs(left.midX - right.midX) / Math.max(left.midX, right.midX, 1);
+      const combinedMid = left.midX + right.midX;
+
+      out.push({
+        leftKeys: left.assetKeys,
+        rightKeys: right.assetKeys,
+        matchupMode: mode,
+        pairKey,
+        closeness,
+        combinedMid,
+      });
+    }
+  };
+
+  runPass(true);
+  if (out.length < targetCount) runPass(false);
+
+  out.sort((a, b) => a.closeness - b.closeness || b.combinedMid - a.combinedMid);
+  return out.slice(0, targetCount);
+}
+
+function buildOneVsOneCandidates(assets: ParsedMarketSeedAsset[]): CandidatePair[] {
   const sorted = [...assets].sort((a, b) => a.midX - b.midX || a.assetKey.localeCompare(b.assetKey));
   const seen = new Set<string>();
   const counts = new Map<string, number>();
-  const candidates: Array<{
-    leftKey: string;
-    rightKey: string;
-    pairKey: string;
-    closeness: number;
-    combinedMid: number;
-  }> = [];
+  const candidates: CandidatePair[] = [];
 
   const addCandidate = (a: ParsedMarketSeedAsset, b: ParsedMarketSeedAsset) => {
-    if (!isPairCompatible(a, b)) return;
-    const pairKey = canonicalPairKey(a.assetKey, b.assetKey);
+    const left = bundleFromKeys([a.assetKey], new Map([[a.assetKey, a], [b.assetKey, b]]));
+    const right = bundleFromKeys([b.assetKey], new Map([[a.assetKey, a], [b.assetKey, b]]));
+    if (!left || !right) return;
+    if (!isBundleCompatible(left, right)) return;
+
+    const pairKey = canonicalPairKey(left.assetKeys, right.assetKeys);
     if (seen.has(pairKey)) return;
     seen.add(pairKey);
 
     const closeness = Math.abs(a.midX - b.midX) / Math.max(a.midX, b.midX, 1);
     const combinedMid = a.midX + b.midX;
     candidates.push({
-      leftKey: a.assetKey,
-      rightKey: b.assetKey,
+      leftKeys: [a.assetKey],
+      rightKeys: [b.assetKey],
+      matchupMode: "1v1",
       pairKey,
       closeness,
       combinedMid,
@@ -269,19 +451,19 @@ function generatePairs(assets: ParsedMarketSeedAsset[]): GeneratedMarketSeedPair
   for (let i = 0; i < sorted.length; i += 1) {
     for (
       let j = i + 1;
-      j < sorted.length && j <= i + PAIR_NEIGHBOR_WINDOW && candidates.length < MAX_GENERATED_PAIRS;
+      j < sorted.length && j <= i + PAIR_NEIGHBOR_WINDOW && candidates.length < MAX_GENERATED_PAIRS_1V1;
       j += 1
     ) {
       addCandidate(sorted[i], sorted[j]);
     }
-    if (candidates.length >= MAX_GENERATED_PAIRS) break;
+    if (candidates.length >= MAX_GENERATED_PAIRS_1V1) break;
   }
 
   for (let i = 0; i < sorted.length; i += 1) {
     const asset = sorted[i];
     if ((counts.get(asset.assetKey) || 0) >= MIN_PAIRS_PER_ASSET) continue;
 
-    for (let delta = 1; delta < sorted.length && candidates.length < MAX_GENERATED_PAIRS; delta += 1) {
+    for (let delta = 1; delta < sorted.length && candidates.length < MAX_GENERATED_PAIRS_1V1; delta += 1) {
       const leftIdx = i - delta;
       const rightIdx = i + delta;
 
@@ -295,17 +477,47 @@ function generatePairs(assets: ParsedMarketSeedAsset[]): GeneratedMarketSeedPair
   }
 
   candidates.sort((a, b) => a.closeness - b.closeness || b.combinedMid - a.combinedMid);
+  return candidates.slice(0, MAX_GENERATED_PAIRS_1V1);
+}
+
+function generatePairs(assets: ParsedMarketSeedAsset[], matchupModes: MatchupMode[]): GeneratedMarketSeedPair[] {
+  const modes = normalizeMatchupModes(matchupModes);
+  const deduped = new Map<string, CandidatePair>();
+
+  if (modes.includes("1v1")) {
+    for (const candidate of buildOneVsOneCandidates(assets)) {
+      deduped.set(candidate.pairKey, candidate);
+    }
+  }
+
+  for (const mode of modes) {
+    if (mode === "1v1") continue;
+    for (const candidate of buildMultiModeCandidates(assets, mode, MAX_GENERATED_PAIRS_PER_MULTI_MODE)) {
+      if (!deduped.has(candidate.pairKey)) {
+        deduped.set(candidate.pairKey, candidate);
+      }
+    }
+  }
+
+  const candidates = [...deduped.values()];
+  candidates.sort((a, b) => a.closeness - b.closeness || b.combinedMid - a.combinedMid);
   const featuredSet = new Set(candidates.slice(0, FEATURED_PAIR_COUNT).map((pair) => pair.pairKey));
 
   return candidates.map((pair) => ({
-    leftKey: pair.leftKey,
-    rightKey: pair.rightKey,
+    leftKeys: pair.leftKeys,
+    rightKeys: pair.rightKeys,
+    matchupMode: pair.matchupMode,
     prompt: buildPrompt(pair.pairKey),
     featured: featuredSet.has(pair.pairKey),
   }));
 }
 
-export function parseMarketpollSeedCsv(csvText: string): ParsedMarketSeedData {
+export function parseMarketpollSeedCsv(
+  csvText: string,
+  options?: {
+    matchupModes?: MatchupMode[];
+  }
+): ParsedMarketSeedData {
   const errors: string[] = [];
   const assets: ParsedMarketSeedAsset[] = [];
   const seen = new Set<string>();
@@ -327,6 +539,7 @@ export function parseMarketpollSeedCsv(csvText: string): ParsedMarketSeedData {
 
     const assetKey = String(cols[0] || "").trim();
     const seedRangeRaw = String(cols[1] || "").trim();
+    const gender = String(assetKey.split("|")[1] || "").trim().toUpperCase();
 
     if (!assetKey) {
       errors.push(`line ${lineNo}: invalid asset key`);
@@ -353,12 +566,14 @@ export function parseMarketpollSeedCsv(csvText: string): ParsedMarketSeedData {
       midX: Number(parsed.midX),
       tierId: String(parsed.tierId),
       tierIndex: Number(parsed.tierIndex),
+      gender,
     });
   }
 
   assets.sort((a, b) => a.assetKey.localeCompare(b.assetKey));
-  const pairs = generatePairs(assets);
-  return { assets, pairs, errors };
+  const matchupModes = normalizeMatchupModes(options?.matchupModes || getConfiguredMatchupModes());
+  const pairs = generatePairs(assets, matchupModes);
+  return { assets, pairs, errors, matchupModes };
 }
 
 export function loadMarketpollSeedCsvFromRepo(): string {

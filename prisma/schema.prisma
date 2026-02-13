@@ -36,6 +36,7 @@ model Asset {
   leftVotes     VoteEvent[]  @relation("LeftAssetVotes")
   rightVotes    VoteEvent[]  @relation("RightAssetVotes")
   selectedVotes VoteEvent[]  @relation("SelectedAssetVotes")
+  score         AssetScore?
 
   @@index([active, label])
 }
@@ -45,6 +46,9 @@ model VotingPair {
   pairKey      String   @unique
   leftAssetId  String
   rightAssetId String
+  leftAssetKeys String[] @default([])
+  rightAssetKeys String[] @default([])
+  matchupMode   String   @default("1v1")
   prompt       String?
   active       Boolean  @default(true)
   featured     Boolean  @default(false)
@@ -55,7 +59,7 @@ model VotingPair {
   rightAsset Asset       @relation("PairRightAsset", fields: [rightAssetId], references: [id], onDelete: Restrict)
   votes      VoteEvent[]
 
-  @@index([active, featured, updatedAt(sort: Desc)])
+  @@index([active, featured, matchupMode, updatedAt(sort: Desc)])
 }
 
 model Voter {
@@ -112,4 +116,23 @@ model IngestionCursor {
   source    String   @id
   lastValue String
   updatedAt DateTime @updatedAt
+}
+
+model AssetScore {
+  assetId       String   @id
+  elo           Float    @default(1500)
+  wins          Int      @default(0)
+  losses        Int      @default(0)
+  ties          Int      @default(0)
+  pollsCount    Int      @default(0)
+  votesFor      Int      @default(0)
+  votesAgainst  Int      @default(0)
+  lastPollAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([elo(sort: Desc)])
+  @@index([pollsCount(sort: Desc)])
 }

@@ -40,5 +40,7 @@ describe("parseMarketpollSeedCsv", () => {
     expect(parsed.errors).toEqual([]);
     expect(parsed.assets.length).toBeGreaterThan(350);
     expect(parsed.pairs.length).toBeGreaterThan(800);
+    expect(parsed.matchupModes).toEqual(["1v1", "1v2", "2v1", "2v2"]);
+    expect(parsed.pairs.some((pair) => pair.matchupMode !== "1v1")).toBe(true);
   });
 });

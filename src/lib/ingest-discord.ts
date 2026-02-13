@@ -44,24 +44,6 @@ async function ensureAsset(prisma: PrismaClient, assetKey: string) {
   });
 }
 
-async function ensurePair(prisma: PrismaClient, leftAssetId: string, rightAssetId: string, pairKey: string) {
-  return prisma.votingPair.upsert({
-    where: { pairKey },
-    update: {
-      leftAssetId,
-      rightAssetId,
-      active: true,
-    },
-    create: {
-      pairKey,
-      leftAssetId,
-      rightAssetId,
-      active: true,
-      featured: false,
-    },
-  });
-}
-
 export async function ingestDiscordPollRuns(
   prisma: PrismaClient,
   runs: DiscordPollRunInput[]
@@ -76,8 +58,32 @@ export async function ingestDiscordPollRuns(
 
     const leftAsset = await ensureAsset(prisma, leftAssetKey);
     const rightAsset = await ensureAsset(prisma, rightAssetKey);
-    const pairKey = String(raw.pairKey || canonicalPairKey(leftAssetKey, rightAssetKey));
-    const pair = await ensurePair(prisma, leftAsset.id, rightAsset.id, pairKey);
+    const leftAssetKeys = Array.isArray(raw.leftAssets) && raw.leftAssets.length ? raw.leftAssets : [leftAssetKey];
+    const rightAssetKeys =
+      Array.isArray(raw.rightAssets) && raw.rightAssets.length ? raw.rightAssets : [rightAssetKey];
+    const matchupMode = `${leftAssetKeys.length}v${rightAssetKeys.length}`;
+    const pairKey = String(raw.pairKey || canonicalPairKey(leftAssetKeys, rightAssetKeys));
+    const pair = await prisma.votingPair.upsert({
+      where: { pairKey },
+      update: {
+        leftAssetId: leftAsset.id,
+        rightAssetId: rightAsset.id,
+        leftAssetKeys,
+        rightAssetKeys,
+        matchupMode,
+        active: true,
+      },
+      create: {
+        pairKey,
+        leftAssetId: leftAsset.id,
+        rightAssetId: rightAsset.id,
+        leftAssetKeys,
+        rightAssetKeys,
+        matchupMode,
+        active: true,
+        featured: false,
+      },
+    });
 
     const commonData = {
       source: VoteSource.DISCORD_BOT,
@@ -96,8 +102,9 @@ export async function ingestDiscordPollRuns(
         result: raw.result ?? null,
         affectsScore: Boolean(raw.affectsScore),
         totalVotes: Number(raw.totalVotes ?? Number(raw.leftVotes || 0) + Number(raw.rightVotes || 0)),
-        leftAssets: Array.isArray(raw.leftAssets) ? raw.leftAssets : [],
-        rightAssets: Array.isArray(raw.rightAssets) ? raw.rightAssets : [],
+        leftAssets: leftAssetKeys,
+        rightAssets: rightAssetKeys,
+        matchupMode,
       },
     };
 
