@@ -4,8 +4,6 @@ import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { ThemeToggle } from "@/components/theme-toggle";
-
 type AssetMetadata = {
   seedRange?: string;
   minX?: number;
@@ -112,17 +110,28 @@ function displayAssetName(asset: Asset): string {
   return symbol ? `${base} ${symbol}` : base;
 }
 
-function rarityLabel(asset: Asset): string {
+function formatRarityCount(value: unknown): string {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return "—";
+  return RARITY_FORMATTER.format(Math.trunc(parsed));
+}
+
+function rarityTotalLabel(asset: Asset): string {
+  const total = Number(asset.rarity?.breakdown?.total);
+  if (Number.isFinite(total) && total > 0) {
+    return formatRarityCount(total);
+  }
+
   const value = Number(asset.rarity?.count);
   if (!Number.isFinite(value) || value <= 0) return "—";
-  return RARITY_FORMATTER.format(Math.trunc(value));
+  return formatRarityCount(value);
 }
 
 function raritySummary(assets: Asset[]): string {
-  const values = [...new Set(assets.map((asset) => rarityLabel(asset)).filter((value) => value !== "—"))];
-  if (!values.length) return "Rarity —";
-  if (values.length === 1) return `Rarity ${values[0]}`;
-  return `Rarity ${values.join(" / ")}`;
+  const values = [...new Set(assets.map((asset) => rarityTotalLabel(asset)).filter((value) => value !== "—"))];
+  if (!values.length) return "—";
+  if (values.length === 1) return values[0];
+  return values.join(" / ");
 }
 
 export default function Home() {
@@ -262,14 +271,13 @@ export default function Home() {
               <p className="mt-1 max-w-2xl text-sm text-slate-700 dark:text-slate-300">{statusText}</p>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
-              <ThemeToggle />
               <Link
                 href="/analytics"
-                className="glass-panel animate-pop-in rounded-full px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-800 transition hover:bg-white"
+                className="glass-panel animate-pop-in rounded-full px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-800 transition hover:bg-white/90 dark:text-slate-200 dark:hover:bg-slate-800/80"
               >
                 Analytics
               </Link>
-              <div className="glass-panel animate-pop-in rounded-full px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-700">
+              <div className="glass-panel animate-pop-in rounded-full px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-700 dark:text-slate-200">
                 Mode {modeLabel}
               </div>
             </div>
@@ -312,7 +320,7 @@ export default function Home() {
           }}
         >
           <div
-            className="grid w-full min-h-[56vh] items-center gap-3 transition-transform duration-150 md:grid-cols-[1fr_auto_1fr] md:gap-5"
+            className="mx-auto grid w-full min-h-[56vh] max-w-[980px] items-stretch gap-3 transition-transform duration-150 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] md:gap-5"
             style={arenaTransform}
           >
             <VoteCard
@@ -468,7 +476,11 @@ function VoteCard({
   const rarityTags = activeAssets.map((asset) => ({
     key: asset.key,
     name: displayAssetName(asset),
-    rarity: rarityLabel(asset),
+    male: formatRarityCount(asset.rarity?.breakdown?.male),
+    female: formatRarityCount(asset.rarity?.breakdown?.female),
+    genderless: formatRarityCount(asset.rarity?.breakdown?.genderless),
+    ungendered: formatRarityCount(asset.rarity?.breakdown?.ungendered),
+    total: formatRarityCount(asset.rarity?.breakdown?.total ?? asset.rarity?.count),
   }));
   const avgElo = activeAssets.length
     ? activeAssets.reduce((sum, asset) => sum + (Number(asset.elo) || 1500), 0) / activeAssets.length
@@ -484,10 +496,10 @@ function VoteCard({
       type="button"
       onClick={onPick}
       disabled={disabled}
-      className={`relative overflow-hidden rounded-3xl border bg-gradient-to-b p-4 text-left shadow-md transition duration-200 hover:-translate-y-0.5 hover:shadow-xl disabled:cursor-not-allowed disabled:opacity-60 sm:p-5 ${toneClasses} ${swipeHint ? "ring-4 ring-emerald-300/50" : ""}`}
+      className={`relative mx-auto flex w-full max-w-[390px] flex-col overflow-hidden rounded-3xl border bg-gradient-to-b p-4 text-left shadow-md transition duration-200 hover:-translate-y-0.5 hover:shadow-xl disabled:cursor-not-allowed disabled:opacity-60 aspect-[5/7] sm:p-5 ${toneClasses} ${swipeHint ? "ring-4 ring-emerald-300/50" : ""}`}
     >
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(80%_120%_at_90%_0%,rgba(255,255,255,0.75),transparent_60%)] dark:bg-[radial-gradient(80%_120%_at_90%_0%,rgba(51,65,85,0.45),transparent_62%)]" />
-      <div className="relative">
+      <div className="relative flex h-full flex-col">
         <div className="flex items-center justify-between gap-2">
           <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-600 dark:text-slate-300">
             {sideLabel}
@@ -497,7 +509,7 @@ function VoteCard({
           </span>
         </div>
 
-        <div className="mt-3 flex min-h-28 items-center justify-center gap-2 rounded-2xl border border-white/70 bg-white/70 px-2 py-2 shadow-inner dark:border-slate-700 dark:bg-slate-900/65">
+        <div className="mt-3 flex h-32 items-center justify-center gap-2 rounded-2xl border border-white/70 bg-white/70 px-2 py-2 shadow-inner dark:border-slate-700 dark:bg-slate-900/65 sm:h-36 md:h-40">
           {activeAssets.length ? (
             activeAssets.map((asset) => {
               const params = new URLSearchParams({ assetKey: asset.key });
@@ -520,7 +532,7 @@ function VoteCard({
                   width={96}
                   height={96}
                   unoptimized
-                  className={`h-24 w-24 object-contain ${SPRITE_PROVIDER === "pokeapi" ? "sprite-gold-filter" : ""}`}
+                  className={`h-24 w-24 object-contain sm:h-28 sm:w-28 ${SPRITE_PROVIDER === "pokeapi" ? "sprite-gold-filter" : ""}`}
                   style={{ imageRendering: "pixelated" }}
                   onError={() => {
                     setFailedAssetKeys((prev) => (prev.includes(asset.key) ? prev : [...prev, asset.key]));
@@ -538,29 +550,32 @@ function VoteCard({
         <h2 className="mt-3 text-center text-2xl font-black tracking-tight text-slate-900 [font-family:var(--font-display)] dark:text-slate-100 sm:text-[2rem]">
           {titleNames.length > 1 ? (
             <>
-              <span className="block leading-tight">{titleNames[0]}</span>
+              <span className="block line-clamp-1 leading-tight">{titleNames[0]}</span>
               <span className="block text-lg leading-none text-slate-500 dark:text-slate-400">+</span>
-              <span className="block leading-tight">{titleNames[1]}</span>
+              <span className="block line-clamp-1 leading-tight">{titleNames[1]}</span>
             </>
           ) : (
-            <span className="block leading-tight">{titleNames[0]}</span>
+            <span className="block line-clamp-2 leading-tight">{titleNames[0]}</span>
           )}
         </h2>
-        <p className="mt-2 line-clamp-2 text-sm text-slate-700 dark:text-slate-300">{prompt}</p>
-        <div className="mt-3 flex flex-wrap gap-1.5">
+        <p className="mt-2 line-clamp-2 text-center text-sm text-slate-700 dark:text-slate-300">{prompt}</p>
+        <div className="mt-3 grid gap-1.5 text-left">
           {rarityTags.map((tag) => (
-            <span
+            <div
               key={`${tag.key}-rarity`}
-              className="rounded-full border border-slate-300 bg-white/90 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-700 dark:border-slate-600 dark:bg-slate-900/90 dark:text-slate-300"
+              className="rounded-xl border border-slate-300 bg-white/85 px-2.5 py-1.5 text-[10px] font-semibold tracking-wide text-slate-700 dark:border-slate-600 dark:bg-slate-900/85 dark:text-slate-300"
             >
-              {tag.name}: Rarity {tag.rarity}
-            </span>
+              <p className="truncate text-[10px] font-bold uppercase tracking-wide">{tag.name}</p>
+              <p className="mt-0.5 text-[10px] font-semibold text-slate-700 dark:text-slate-300">
+                M {tag.male} • F {tag.female} • G {tag.genderless} • U {tag.ungendered} • T {tag.total}
+              </p>
+            </div>
           ))}
         </div>
 
-        <div className="mt-4 flex items-center justify-between gap-2">
+        <div className="mt-auto flex items-center justify-between gap-2 pt-3">
           <span className="rounded-full bg-slate-900 px-3 py-1 text-[11px] font-semibold text-white dark:bg-slate-700">
-            {raritySummary(activeAssets)}
+            Total {raritySummary(activeAssets)}
           </span>
           <span className="rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold text-slate-800 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200">
             Elo {Math.round(avgElo)}

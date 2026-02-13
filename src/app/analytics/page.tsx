@@ -1,7 +1,6 @@
 import Link from "next/link";
 
 import { getAnalyticsSnapshot } from "@/lib/analytics";
-import { ThemeToggle } from "@/components/theme-toggle";
 
 import { AnalyticsDashboard } from "./analytics-dashboard";
 
@@ -31,13 +30,12 @@ export default async function AnalyticsPage() {
             </div>
 
             <div className="flex flex-wrap items-center justify-end gap-2">
-              <ThemeToggle />
-              <span className="glass-panel rounded-full px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-700">
+              <span className="glass-panel rounded-full px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-700 dark:text-slate-200">
                 Live
               </span>
               <Link
                 href="/"
-                className="glass-panel rounded-full px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-800 transition hover:bg-white"
+                className="glass-panel rounded-full px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-800 transition hover:bg-white/90 dark:text-slate-200 dark:hover:bg-slate-800/80"
               >
                 Back to Arena
               </Link>

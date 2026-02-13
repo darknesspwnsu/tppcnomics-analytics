@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist_Mono, Oxanium, Space_Grotesk } from "next/font/google";
+import { ThemeToggle } from "@/components/theme-toggle";
 import "./globals.css";
 
 const THEME_INIT_SCRIPT = `
@@ -50,6 +51,7 @@ export default function RootLayout({
       <body className={`${spaceGrotesk.variable} ${oxanium.variable} ${geistMono.variable} antialiased`}>
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
         {children}
+        <ThemeToggle />
       </body>
     </html>
   );
