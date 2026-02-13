@@ -9,6 +9,7 @@ type AssetMetadata = {
   minX?: number;
   maxX?: number;
   midX?: number;
+  tierIndex?: number;
   [key: string]: unknown;
 };
 
@@ -61,6 +62,14 @@ type VoteSide = "LEFT" | "RIGHT" | "SKIP";
 const SWIPE_THRESHOLD_PX = 84;
 const SPRITE_PROVIDER = process.env.NEXT_PUBLIC_SPRITE_PROVIDER === "pokeapi" ? "pokeapi" : "tppc";
 
+const NAMED_TIER_RARITY: Record<string, number> = {
+  apex: 1,
+  high: 2,
+  mid: 3,
+  low: 4,
+  unranked: 5,
+};
+
 function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
 }
@@ -93,14 +102,30 @@ function displayAssetName(asset: Asset): string {
 
 function rarityLabel(asset: Asset): string {
   const metadata = asset.metadata && typeof asset.metadata === "object" ? asset.metadata : null;
-  const seedRange = metadata?.seedRange;
-  if (typeof seedRange === "string" && seedRange.trim()) {
-    return seedRange.trim();
+  const rawTierIndex = Number(metadata?.tierIndex);
+  if (Number.isFinite(rawTierIndex) && rawTierIndex >= 0) {
+    return `#${Math.trunc(rawTierIndex) + 1}`;
   }
-  if (asset.tier && asset.tier.trim()) {
-    return `${asset.tier} tier`;
+
+  const tierText = String(asset.tier || "")
+    .trim()
+    .toLowerCase();
+  if (!tierText) {
+    return "—";
   }
-  return "Unknown";
+
+  if (Number.isFinite(NAMED_TIER_RARITY[tierText])) {
+    return `#${NAMED_TIER_RARITY[tierText]}`;
+  }
+
+  return "—";
+}
+
+function raritySummary(assets: Asset[]): string {
+  const values = [...new Set(assets.map((asset) => rarityLabel(asset)).filter((value) => value !== "—"))];
+  if (!values.length) return "Rarity —";
+  if (values.length === 1) return `Rarity ${values[0]}`;
+  return `Rarity ${values.join(" / ")}`;
 }
 
 export default function Home() {
@@ -436,9 +461,6 @@ function VoteCard({
   const [failedAssetKeys, setFailedAssetKeys] = useState<string[]>([]);
   const activeAssets = assets.slice(0, 2);
   const title = activeAssets.length ? activeAssets.map((asset) => displayAssetName(asset)).join(" + ") : "Loading...";
-  const tierLabel = activeAssets.length
-    ? [...new Set(activeAssets.map((asset) => asset.tier || "Unranked"))].join(" / ")
-    : "Unranked";
   const rarityTags = activeAssets.map((asset) => ({
     key: asset.key,
     name: displayAssetName(asset),
@@ -515,13 +537,15 @@ function VoteCard({
               key={`${tag.key}-rarity`}
               className="rounded-full border border-slate-300 bg-white/90 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-700"
             >
-              {tag.name}: {tag.rarity}
+              {tag.name}: Rarity {tag.rarity}
             </span>
           ))}
         </div>
 
         <div className="mt-4 flex items-center justify-between gap-2">
-          <span className="rounded-full bg-slate-900 px-3 py-1 text-[11px] font-semibold text-white">{tierLabel}</span>
+          <span className="rounded-full bg-slate-900 px-3 py-1 text-[11px] font-semibold text-white">
+            {raritySummary(activeAssets)}
+          </span>
           <span className="rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold text-slate-800">
             Elo {Math.round(avgElo)}
           </span>
