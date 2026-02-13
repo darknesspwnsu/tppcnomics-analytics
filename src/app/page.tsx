@@ -4,6 +4,8 @@ import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { ThemeToggle } from "@/components/theme-toggle";
+
 type AssetMetadata = {
   seedRange?: string;
   minX?: number;
@@ -249,20 +251,23 @@ export default function Home() {
 
   return (
     <div className="relative min-h-screen overflow-hidden">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(1200px_500px_at_-10%_-10%,rgba(110,231,255,0.35),transparent_60%),radial-gradient(900px_420px_at_110%_5%,rgba(251,191,36,0.30),transparent_58%),radial-gradient(900px_600px_at_50%_120%,rgba(59,130,246,0.12),transparent_70%)]" />
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(1200px_500px_at_-10%_-10%,rgba(110,231,255,0.35),transparent_60%),radial-gradient(900px_420px_at_110%_5%,rgba(251,191,36,0.30),transparent_58%),radial-gradient(900px_600px_at_50%_120%,rgba(59,130,246,0.12),transparent_70%)] dark:bg-[radial-gradient(1200px_500px_at_-10%_-10%,rgba(8,145,178,0.38),transparent_60%),radial-gradient(900px_420px_at_110%_5%,rgba(217,119,6,0.26),transparent_58%),radial-gradient(900px_600px_at_50%_120%,rgba(14,116,144,0.2),transparent_70%)]" />
       <div className="arena-noise pointer-events-none absolute inset-0 opacity-[0.16]" />
 
       <main className="relative mx-auto flex min-h-screen w-full max-w-6xl flex-col px-4 pb-24 pt-5 sm:px-6 sm:pt-7 lg:px-10">
         <header className="animate-rise-in">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-cyan-700">TPPCNomics Arena</p>
-              <h1 className="mt-1 text-balance text-2xl font-bold tracking-tight text-slate-950 [font-family:var(--font-display)] sm:text-3xl">
+              <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-cyan-700 dark:text-cyan-300">
+                TPPCNomics Arena
+              </p>
+              <h1 className="mt-1 text-balance text-2xl font-bold tracking-tight text-slate-950 [font-family:var(--font-display)] dark:text-slate-100 sm:text-3xl">
                 Swipe the Market
               </h1>
-              <p className="mt-1 max-w-2xl text-sm text-slate-700">{statusText}</p>
+              <p className="mt-1 max-w-2xl text-sm text-slate-700 dark:text-slate-300">{statusText}</p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <ThemeToggle />
               <Link
                 href="/analytics"
                 className="glass-panel animate-pop-in rounded-full px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-800 transition hover:bg-white"
@@ -284,7 +289,7 @@ export default function Home() {
         </section>
 
         <section
-          className="mt-5 flex-1"
+          className="mt-5 flex flex-1 items-center"
           onPointerDown={(event) => {
             swipeStartXRef.current = event.clientX;
           }}
@@ -312,7 +317,7 @@ export default function Home() {
           }}
         >
           <div
-            className="grid min-h-[56vh] gap-3 transition-transform duration-150 md:grid-cols-[1fr_auto_1fr] md:gap-5"
+            className="grid w-full min-h-[56vh] items-center gap-3 transition-transform duration-150 md:grid-cols-[1fr_auto_1fr] md:gap-5"
             style={arenaTransform}
           >
             <VoteCard
@@ -327,7 +332,7 @@ export default function Home() {
             />
 
             <div className="hidden items-center justify-center md:flex">
-              <div className="animate-soft-pulse glass-panel rounded-full px-4 py-2 text-sm font-extrabold uppercase tracking-[0.16em] text-slate-700">
+              <div className="animate-soft-pulse glass-panel rounded-full px-4 py-2 text-sm font-extrabold uppercase tracking-[0.16em] text-slate-700 dark:text-slate-200">
                 VS
               </div>
             </div>
@@ -373,7 +378,7 @@ export default function Home() {
           </div>
         </section>
 
-        <footer className="mt-3 flex items-center justify-between text-[11px] text-slate-600">
+        <footer className="mt-3 flex items-center justify-between text-[11px] text-slate-600 dark:text-slate-400">
           <span className="truncate">Pair {pair?.pairKey || "loading..."}</span>
           <span className="uppercase tracking-wider">{modeLabel}</span>
         </footer>
@@ -393,17 +398,21 @@ function StatusChip({
 }) {
   const toneClass =
     tone === "sky"
-      ? "from-cyan-300/40 to-sky-100/80"
+      ? "from-cyan-300/40 to-sky-100/80 dark:from-cyan-900/55 dark:to-cyan-800/35"
       : tone === "amber"
-        ? "from-amber-300/45 to-orange-100/80"
+        ? "from-amber-300/45 to-orange-100/80 dark:from-amber-900/55 dark:to-orange-800/35"
         : tone === "violet"
-          ? "from-indigo-300/40 to-violet-100/80"
-          : "from-emerald-300/45 to-green-100/80";
+          ? "from-indigo-300/40 to-violet-100/80 dark:from-indigo-900/55 dark:to-violet-800/35"
+          : "from-emerald-300/45 to-green-100/80 dark:from-emerald-900/55 dark:to-green-800/35";
 
   return (
-    <div className={`animate-rise-in rounded-xl border border-white/70 bg-gradient-to-br ${toneClass} px-3 py-2`}>
-      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-600">{label}</p>
-      <p className="mt-0.5 text-lg font-bold text-slate-900 [font-family:var(--font-display)]">{value}</p>
+    <div
+      className={`animate-rise-in rounded-xl border border-white/70 bg-gradient-to-br px-3 py-2 dark:border-slate-700/80 ${toneClass}`}
+    >
+      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-600 dark:text-slate-300">{label}</p>
+      <p className="mt-0.5 text-lg font-bold text-slate-900 [font-family:var(--font-display)] dark:text-slate-100">
+        {value}
+      </p>
     </div>
   );
 }
@@ -426,7 +435,7 @@ function ActionButton({
       ? "border-rose-300 bg-gradient-to-b from-rose-400 to-rose-500 text-white shadow-rose-500/30"
       : tone === "right"
         ? "border-emerald-300 bg-gradient-to-b from-emerald-400 to-emerald-500 text-white shadow-emerald-500/30"
-        : "border-slate-300 bg-gradient-to-b from-slate-100 to-slate-200 text-slate-700 shadow-slate-300/30";
+        : "border-slate-300 bg-gradient-to-b from-slate-100 to-slate-200 text-slate-700 shadow-slate-300/30 dark:border-slate-600 dark:from-slate-700 dark:to-slate-800 dark:text-slate-200";
 
   return (
     <button
@@ -472,8 +481,8 @@ function VoteCard({
 
   const toneClasses =
     tone === "left"
-      ? "border-cyan-300/80 from-cyan-100/85 via-white to-cyan-50/70"
-      : "border-amber-300/80 from-amber-100/85 via-white to-orange-50/70";
+      ? "border-cyan-300/80 from-cyan-100/85 via-white to-cyan-50/70 dark:border-cyan-700/80 dark:from-slate-900 dark:via-slate-900 dark:to-cyan-950/45"
+      : "border-amber-300/80 from-amber-100/85 via-white to-orange-50/70 dark:border-amber-700/80 dark:from-slate-900 dark:via-slate-900 dark:to-amber-950/45";
 
   return (
     <button
@@ -482,16 +491,18 @@ function VoteCard({
       disabled={disabled}
       className={`relative overflow-hidden rounded-3xl border bg-gradient-to-b p-4 text-left shadow-md transition duration-200 hover:-translate-y-0.5 hover:shadow-xl disabled:cursor-not-allowed disabled:opacity-60 sm:p-5 ${toneClasses} ${swipeHint ? "ring-4 ring-emerald-300/50" : ""}`}
     >
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(80%_120%_at_90%_0%,rgba(255,255,255,0.75),transparent_60%)]" />
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(80%_120%_at_90%_0%,rgba(255,255,255,0.75),transparent_60%)] dark:bg-[radial-gradient(80%_120%_at_90%_0%,rgba(51,65,85,0.45),transparent_62%)]" />
       <div className="relative">
         <div className="flex items-center justify-between gap-2">
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-600">{sideLabel}</p>
-          <span className="rounded-full border border-slate-200/90 bg-white/85 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-600 dark:text-slate-300">
+            {sideLabel}
+          </p>
+          <span className="rounded-full border border-slate-200/90 bg-white/85 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-700 dark:border-slate-600 dark:bg-slate-900/85 dark:text-slate-300">
             Team {activeAssets.length || 1}
           </span>
         </div>
 
-        <div className="mt-3 flex min-h-28 items-center justify-center gap-2 rounded-2xl border border-white/70 bg-white/70 px-2 py-2 shadow-inner">
+        <div className="mt-3 flex min-h-28 items-center justify-center gap-2 rounded-2xl border border-white/70 bg-white/70 px-2 py-2 shadow-inner dark:border-slate-700 dark:bg-slate-900/65">
           {activeAssets.length ? (
             activeAssets.map((asset) => {
               const params = new URLSearchParams({ assetKey: asset.key });
@@ -502,7 +513,7 @@ function VoteCard({
               return imageFailed ? (
                 <span
                   key={`${asset.key}-missing`}
-                  className="inline-flex h-24 w-24 items-center justify-center rounded-xl border border-dashed border-slate-300 text-[10px] font-semibold uppercase tracking-wide text-slate-400"
+                  className="inline-flex h-24 w-24 items-center justify-center rounded-xl border border-dashed border-slate-300 text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:border-slate-600 dark:text-slate-500"
                 >
                   No sprite
                 </span>
@@ -523,19 +534,21 @@ function VoteCard({
               );
             })
           ) : (
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">No sprite</span>
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+              No sprite
+            </span>
           )}
         </div>
 
-        <h2 className="mt-3 text-2xl font-black tracking-tight text-slate-900 [font-family:var(--font-display)] sm:text-[2rem]">
+        <h2 className="mt-3 text-2xl font-black tracking-tight text-slate-900 [font-family:var(--font-display)] dark:text-slate-100 sm:text-[2rem]">
           {title}
         </h2>
-        <p className="mt-2 line-clamp-2 text-sm text-slate-700">{prompt}</p>
+        <p className="mt-2 line-clamp-2 text-sm text-slate-700 dark:text-slate-300">{prompt}</p>
         <div className="mt-3 flex flex-wrap gap-1.5">
           {rarityTags.map((tag) => (
             <span
               key={`${tag.key}-rarity`}
-              className="rounded-full border border-slate-300 bg-white/90 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-700"
+              className="rounded-full border border-slate-300 bg-white/90 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-700 dark:border-slate-600 dark:bg-slate-900/90 dark:text-slate-300"
             >
               {tag.name}: Rarity {tag.rarity}
             </span>
@@ -543,10 +556,10 @@ function VoteCard({
         </div>
 
         <div className="mt-4 flex items-center justify-between gap-2">
-          <span className="rounded-full bg-slate-900 px-3 py-1 text-[11px] font-semibold text-white">
+          <span className="rounded-full bg-slate-900 px-3 py-1 text-[11px] font-semibold text-white dark:bg-slate-700">
             {raritySummary(activeAssets)}
           </span>
-          <span className="rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold text-slate-800">
+          <span className="rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold text-slate-800 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200">
             Elo {Math.round(avgElo)}
           </span>
         </div>
