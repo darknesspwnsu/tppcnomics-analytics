@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { ensureBootstrapData } from "@/lib/bootstrap";
 import { prisma } from "@/lib/prisma";
+import { getRarityForAssetKey } from "@/lib/rarity";
 import { getOrCreateVisitorId, issueVisitorCookie } from "@/lib/visitor-session";
 
 const RECENT_PAIR_EXCLUDE_LIMIT = 20;
@@ -175,6 +176,7 @@ export async function GET(request: NextRequest) {
       return {
         ...asset,
         elo: Number.isFinite(eloByAssetId.get(asset.id)) ? Number(eloByAssetId.get(asset.id)) : null,
+        rarity: getRarityForAssetKey(asset.key),
       };
     };
 
@@ -195,8 +197,9 @@ export async function GET(request: NextRequest) {
         matchupMode: pair.matchupMode,
         leftAssets,
         rightAssets,
-        leftAsset: leftAssets[0] || { ...pair.leftAsset, elo: null },
-        rightAsset: rightAssets[0] || { ...pair.rightAsset, elo: null },
+        leftAsset: leftAssets[0] || { ...pair.leftAsset, elo: null, rarity: getRarityForAssetKey(pair.leftAsset.key) },
+        rightAsset:
+          rightAssets[0] || { ...pair.rightAsset, elo: null, rarity: getRarityForAssetKey(pair.rightAsset.key) },
       },
       voter: {
         visitorId: session.visitorId,

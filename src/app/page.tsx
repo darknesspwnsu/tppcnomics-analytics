@@ -15,6 +15,22 @@ type AssetMetadata = {
   [key: string]: unknown;
 };
 
+type AssetRarity = {
+  found: boolean;
+  rank: number | null;
+  count: number | null;
+  column: "male" | "female" | "genderless" | "ungendered" | "total" | null;
+  source: string;
+  sourceLastUpdated: string | null;
+  breakdown: {
+    male: number;
+    female: number;
+    genderless: number;
+    ungendered: number;
+    total: number;
+  } | null;
+};
+
 type Asset = {
   id: string;
   key: string;
@@ -23,6 +39,7 @@ type Asset = {
   imageUrl: string | null;
   elo: number | null;
   metadata: AssetMetadata | null;
+  rarity?: AssetRarity | null;
 };
 
 type MatchupResponse = {
@@ -63,14 +80,7 @@ type VoteSide = "LEFT" | "RIGHT" | "SKIP";
 
 const SWIPE_THRESHOLD_PX = 84;
 const SPRITE_PROVIDER = process.env.NEXT_PUBLIC_SPRITE_PROVIDER === "pokeapi" ? "pokeapi" : "tppc";
-
-const NAMED_TIER_RARITY: Record<string, number> = {
-  apex: 1,
-  high: 2,
-  mid: 3,
-  low: 4,
-  unranked: 5,
-};
+const RARITY_FORMATTER = new Intl.NumberFormat("en-US");
 
 function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
@@ -103,24 +113,9 @@ function displayAssetName(asset: Asset): string {
 }
 
 function rarityLabel(asset: Asset): string {
-  const metadata = asset.metadata && typeof asset.metadata === "object" ? asset.metadata : null;
-  const rawTierIndex = Number(metadata?.tierIndex);
-  if (Number.isFinite(rawTierIndex) && rawTierIndex >= 0) {
-    return `#${Math.trunc(rawTierIndex) + 1}`;
-  }
-
-  const tierText = String(asset.tier || "")
-    .trim()
-    .toLowerCase();
-  if (!tierText) {
-    return "—";
-  }
-
-  if (Number.isFinite(NAMED_TIER_RARITY[tierText])) {
-    return `#${NAMED_TIER_RARITY[tierText]}`;
-  }
-
-  return "—";
+  const value = Number(asset.rarity?.count);
+  if (!Number.isFinite(value) || value <= 0) return "—";
+  return RARITY_FORMATTER.format(Math.trunc(value));
 }
 
 function raritySummary(assets: Asset[]): string {
@@ -469,7 +464,7 @@ function VoteCard({
 }) {
   const [failedAssetKeys, setFailedAssetKeys] = useState<string[]>([]);
   const activeAssets = assets.slice(0, 2);
-  const title = activeAssets.length ? activeAssets.map((asset) => displayAssetName(asset)).join(" + ") : "Loading...";
+  const titleNames = activeAssets.length ? activeAssets.map((asset) => displayAssetName(asset)) : ["Loading..."];
   const rarityTags = activeAssets.map((asset) => ({
     key: asset.key,
     name: displayAssetName(asset),
@@ -540,8 +535,16 @@ function VoteCard({
           )}
         </div>
 
-        <h2 className="mt-3 text-2xl font-black tracking-tight text-slate-900 [font-family:var(--font-display)] dark:text-slate-100 sm:text-[2rem]">
-          {title}
+        <h2 className="mt-3 text-center text-2xl font-black tracking-tight text-slate-900 [font-family:var(--font-display)] dark:text-slate-100 sm:text-[2rem]">
+          {titleNames.length > 1 ? (
+            <>
+              <span className="block leading-tight">{titleNames[0]}</span>
+              <span className="block text-lg leading-none text-slate-500 dark:text-slate-400">+</span>
+              <span className="block leading-tight">{titleNames[1]}</span>
+            </>
+          ) : (
+            <span className="block leading-tight">{titleNames[0]}</span>
+          )}
         </h2>
         <p className="mt-2 line-clamp-2 text-sm text-slate-700 dark:text-slate-300">{prompt}</p>
         <div className="mt-3 flex flex-wrap gap-1.5">
