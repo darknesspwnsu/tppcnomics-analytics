@@ -111,9 +111,6 @@ function genderSymbol(gender: string): string {
 
 function normalizeDisplayGender(asset: Asset, rawGender: string): string {
   const normalized = String(rawGender || "").trim().toUpperCase();
-  if (normalized === "G") return "G";
-  if (normalized === "U" || normalized === "?") return "?";
-
   const breakdown = asset.rarity?.breakdown;
   if (!breakdown) return normalized;
 
@@ -124,6 +121,14 @@ function normalizeDisplayGender(asset: Asset, rawGender: string): string {
 
   if (normalized === "M" && hasMale) return "M";
   if (normalized === "F" && hasFemale) return "F";
+  if (normalized === "G") {
+    if (hasGenderless) return "G";
+    if (hasUngendered) return "?";
+  }
+  if (normalized === "U" || normalized === "?") {
+    if (hasUngendered) return "?";
+    if (hasGenderless) return "G";
+  }
 
   // Invalid M/F for species that only exist in non-binary buckets.
   if (!hasMale && !hasFemale) {
@@ -170,6 +175,38 @@ function raritySummary(assets: Asset[]): string | null {
   if (!values.length) return null;
   if (values.length === 1) return values[0];
   return values.join(" / ");
+}
+
+type RarityTag = {
+  resolvedGender: string;
+  male: string | null;
+  female: string | null;
+  genderless: string | null;
+  ungendered: string | null;
+  total: string | null;
+};
+
+function rarityDetailText(tag: RarityTag): string {
+  const normalized = String(tag.resolvedGender || "").trim().toUpperCase();
+
+  const parts =
+    normalized === "M"
+      ? [tag.male ? `♂ ${tag.male}` : null, tag.total ? `Total ${tag.total}` : null]
+      : normalized === "F"
+        ? [tag.female ? `♀ ${tag.female}` : null, tag.total ? `Total ${tag.total}` : null]
+        : normalized === "G"
+          ? [(tag.genderless || tag.ungendered) ? `G ${tag.genderless || tag.ungendered}` : null, tag.total ? `Total ${tag.total}` : null]
+          : normalized === "U" || normalized === "?"
+            ? [(tag.ungendered || tag.genderless) ? `(?) ${tag.ungendered || tag.genderless}` : null, tag.total ? `Total ${tag.total}` : null]
+            : [
+                tag.male ? `♂ ${tag.male}` : null,
+                tag.female ? `♀ ${tag.female}` : null,
+                tag.genderless ? `G ${tag.genderless}` : null,
+                tag.ungendered ? `(?) ${tag.ungendered}` : null,
+                tag.total ? `Total ${tag.total}` : null,
+              ];
+
+  return parts.filter(Boolean).join(" • ") || "No rarity data";
 }
 
 export default function Home() {
@@ -762,21 +799,7 @@ const VoteCard = memo(function VoteCard({
               >
                 <p className="line-clamp-1 max-w-full text-[10px] font-bold uppercase tracking-wide text-center">{tag.name}</p>
                 <p className="mt-0.5 text-[10px] font-semibold text-center text-slate-700 dark:text-slate-300">
-                  {(tag.resolvedGender === "G"
-                    ? [
-                        tag.genderless ? `G ${tag.genderless}` : tag.ungendered ? `G ${tag.ungendered}` : null,
-                        tag.total ? `Total ${tag.total}` : null,
-                      ]
-                    : [
-                        tag.male ? `♂ ${tag.male}` : null,
-                        tag.female ? `♀ ${tag.female}` : null,
-                        tag.genderless ? `G ${tag.genderless}` : null,
-                        tag.ungendered ? `(?) ${tag.ungendered}` : null,
-                        tag.total ? `Total ${tag.total}` : null,
-                      ]
-                  )
-                    .filter(Boolean)
-                    .join(" • ") || "No rarity data"}
+                  {rarityDetailText(tag)}
                 </p>
               </div>
             ))}
