@@ -2,12 +2,35 @@ import { VoteSource } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 
 import { ensureBootstrapData } from "@/lib/bootstrap";
+import { getConfiguredMatchupModes, loadMarketpollSeedCsvFromRepo, parseMarketpollSeedCsv } from "@/lib/marketpoll-seeds";
+import { canonicalPairKey } from "@/lib/pair-key";
 import { prisma } from "@/lib/prisma";
 import { getRarityForAssetKey } from "@/lib/rarity";
 import { getOrCreateVisitorId, issueVisitorCookie } from "@/lib/visitor-session";
 
 const RECENT_PAIR_EXCLUDE_LIMIT = 20;
 const FEATURED_PAIR_WEIGHT = 2;
+const GOLDEN_PREFIX = "Golden";
+let cachedValidPairKeys: string[] | null = null;
+
+function getValidSeedPairKeys(): string[] {
+  if (cachedValidPairKeys) return cachedValidPairKeys;
+
+  try {
+    const parsed = parseMarketpollSeedCsv(loadMarketpollSeedCsvFromRepo(), {
+      matchupModes: getConfiguredMatchupModes(),
+    });
+    if (!parsed.errors.length && parsed.pairs.length) {
+      cachedValidPairKeys = [...new Set(parsed.pairs.map((pair) => canonicalPairKey(pair.leftKeys, pair.rightKeys)))];
+      return cachedValidPairKeys;
+    }
+  } catch {
+    // Ignore and fall back to DB-only filtering.
+  }
+
+  cachedValidPairKeys = [];
+  return cachedValidPairKeys;
+}
 
 function pickWeightedRandomPairId(candidates: Array<{ id: string; featured: boolean }>): string | null {
   if (!candidates.length) return null;
@@ -71,10 +94,22 @@ export async function GET(request: NextRequest) {
     }
 
     excludedPairIds = [...new Set(excludedPairIds)];
+    const validSeedPairKeys = getValidSeedPairKeys();
 
     const filteredCandidates = await prisma.votingPair.findMany({
       where: {
         active: true,
+        ...(validSeedPairKeys.length ? { pairKey: { in: validSeedPairKeys } } : {}),
+        leftAsset: {
+          key: {
+            startsWith: GOLDEN_PREFIX,
+          },
+        },
+        rightAsset: {
+          key: {
+            startsWith: GOLDEN_PREFIX,
+          },
+        },
         ...(excludedPairIds.length ? { id: { notIn: excludedPairIds } } : {}),
       },
       select: {
@@ -87,7 +122,20 @@ export async function GET(request: NextRequest) {
 
     if (!selectedPairId) {
       const fallbackCandidates = await prisma.votingPair.findMany({
-        where: { active: true },
+        where: {
+          active: true,
+          ...(validSeedPairKeys.length ? { pairKey: { in: validSeedPairKeys } } : {}),
+          leftAsset: {
+            key: {
+              startsWith: GOLDEN_PREFIX,
+            },
+          },
+          rightAsset: {
+            key: {
+              startsWith: GOLDEN_PREFIX,
+            },
+          },
+        },
         select: {
           id: true,
           featured: true,

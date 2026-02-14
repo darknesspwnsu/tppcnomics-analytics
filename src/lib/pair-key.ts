@@ -9,7 +9,8 @@ function genderDisplaySuffix(code: string): string {
   const normalized = String(code || "").trim().toUpperCase();
   if (normalized === "M") return "♂";
   if (normalized === "F") return "♀";
-  if (normalized === "U" || normalized === "?" || normalized === "G") return "(?)";
+  if (normalized === "G" || normalized === "⚲") return "G";
+  if (normalized === "U" || normalized === "?") return "(?)";
   return "";
 }
 

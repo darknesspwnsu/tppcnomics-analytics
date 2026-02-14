@@ -366,53 +366,43 @@ function buildMultiModeCandidates(assets: ParsedMarketSeedAsset[], mode: Matchup
 
   const rng = createSeededRng(stringHash(`${mode}:${allKeys.join("|")}`));
 
-  const runPass = (strictGender: boolean) => {
-    for (let attempt = 0; attempt < MAX_MULTI_ATTEMPTS && out.length < targetCount; attempt += 1) {
-      const leftKeys = sampleUniqueAssetKeys(allKeys, leftSize, rng);
-      if (!leftKeys) continue;
+  for (let attempt = 0; attempt < MAX_MULTI_ATTEMPTS && out.length < targetCount; attempt += 1) {
+    const leftKeys = sampleUniqueAssetKeys(allKeys, leftSize, rng);
+    if (!leftKeys) continue;
 
-      const rightKeys = sampleUniqueAssetKeys(allKeys, rightSize, rng, new Set(leftKeys));
-      if (!rightKeys) continue;
+    const rightKeys = sampleUniqueAssetKeys(allKeys, rightSize, rng, new Set(leftKeys));
+    if (!rightKeys) continue;
 
-      const left = bundleFromKeys(leftKeys, byKey);
-      const right = bundleFromKeys(rightKeys, byKey);
-      if (!left || !right) continue;
+    const left = bundleFromKeys(leftKeys, byKey);
+    const right = bundleFromKeys(rightKeys, byKey);
+    if (!left || !right) continue;
 
-      const tierIndexes = [...left.assets, ...right.assets]
-        .map((asset) => Number(asset.tierIndex))
-        .filter((value) => Number.isFinite(value));
-      if (tierIndexes.length >= 2) {
-        const spread = Math.max(...tierIndexes) - Math.min(...tierIndexes);
-        if (spread > MAX_ASSET_TIER_SPREAD) continue;
-      }
-
-      if (strictGender) {
-        if (!left.gender || !right.gender) continue;
-        if (left.gender !== right.gender) continue;
-      }
-
-      if (!isBundleCompatible(left, right)) continue;
-
-      const pairKey = canonicalPairKey(left.assetKeys, right.assetKeys);
-      if (seen.has(pairKey)) continue;
-      seen.add(pairKey);
-
-      const closeness = Math.abs(left.midX - right.midX) / Math.max(left.midX, right.midX, 1);
-      const combinedMid = left.midX + right.midX;
-
-      out.push({
-        leftKeys: left.assetKeys,
-        rightKeys: right.assetKeys,
-        matchupMode: mode,
-        pairKey,
-        closeness,
-        combinedMid,
-      });
+    const tierIndexes = [...left.assets, ...right.assets]
+      .map((asset) => Number(asset.tierIndex))
+      .filter((value) => Number.isFinite(value));
+    if (tierIndexes.length >= 2) {
+      const spread = Math.max(...tierIndexes) - Math.min(...tierIndexes);
+      if (spread > MAX_ASSET_TIER_SPREAD) continue;
     }
-  };
 
-  runPass(true);
-  if (out.length < targetCount) runPass(false);
+    if (!isBundleCompatible(left, right)) continue;
+
+    const pairKey = canonicalPairKey(left.assetKeys, right.assetKeys);
+    if (seen.has(pairKey)) continue;
+    seen.add(pairKey);
+
+    const closeness = Math.abs(left.midX - right.midX) / Math.max(left.midX, right.midX, 1);
+    const combinedMid = left.midX + right.midX;
+
+    out.push({
+      leftKeys: left.assetKeys,
+      rightKeys: right.assetKeys,
+      matchupMode: mode,
+      pairKey,
+      closeness,
+      combinedMid,
+    });
+  }
 
   out.sort((a, b) => a.closeness - b.closeness || b.combinedMid - a.combinedMid);
   return out.slice(0, targetCount);

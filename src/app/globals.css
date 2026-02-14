@@ -99,3 +99,16 @@ html.dark .glass-panel {
 .sprite-gold-filter {
   filter: sepia(1) saturate(2.5) hue-rotate(-12deg) brightness(1.04) contrast(1.08);
 }
+
+.swipe-gesture-surface {
+  touch-action: pan-y;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .swipe-gesture-surface {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+}

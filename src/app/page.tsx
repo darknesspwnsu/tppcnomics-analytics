@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 
 type AssetMetadata = {
   seedRange?: string;
@@ -79,6 +79,13 @@ type VoteSide = "LEFT" | "RIGHT" | "SKIP";
 const SWIPE_THRESHOLD_PX = 84;
 const SPRITE_PROVIDER = process.env.NEXT_PUBLIC_SPRITE_PROVIDER === "pokeapi" ? "pokeapi" : "tppc";
 const RARITY_FORMATTER = new Intl.NumberFormat("en-US");
+const PREFETCH_ASSET_LIMIT = 6;
+
+function spriteUrlForAssetKey(assetKey: string): string {
+  const params = new URLSearchParams({ assetKey });
+  if (SPRITE_PROVIDER !== "tppc") params.set("prefer", SPRITE_PROVIDER);
+  return `/api/sprites?${params.toString()}`;
+}
 
 function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
@@ -96,7 +103,7 @@ function genderSymbol(gender: string): string {
   const normalized = String(gender || "").trim().toUpperCase();
   if (normalized === "M") return "♂";
   if (normalized === "F") return "♀";
-  if (normalized === "G") return "(?)";
+  if (normalized === "G") return "G";
   if (normalized === "U") return "(?)";
   if (normalized === "?") return "(?)";
   return "";
@@ -104,10 +111,11 @@ function genderSymbol(gender: string): string {
 
 function normalizeDisplayGender(asset: Asset, rawGender: string): string {
   const normalized = String(rawGender || "").trim().toUpperCase();
+  if (normalized === "G") return "G";
+  if (normalized === "U" || normalized === "?") return "?";
+
   const breakdown = asset.rarity?.breakdown;
-  if (!breakdown) {
-    return normalized;
-  }
+  if (!breakdown) return normalized;
 
   const hasMale = Number(breakdown.male) > 0;
   const hasFemale = Number(breakdown.female) > 0;
@@ -116,19 +124,11 @@ function normalizeDisplayGender(asset: Asset, rawGender: string): string {
 
   if (normalized === "M" && hasMale) return "M";
   if (normalized === "F" && hasFemale) return "F";
-  if (normalized === "G") {
-    if (hasGenderless) return "G";
-    if (hasUngendered) return "?";
-  }
-  if (normalized === "?") {
-    if (hasUngendered) return "?";
-    if (hasGenderless) return "G";
-  }
 
-  // Invalid M/F for species that only exist in genderless/ungendered buckets.
+  // Invalid M/F for species that only exist in non-binary buckets.
   if (!hasMale && !hasFemale) {
-    if (hasUngendered) return "?";
     if (hasGenderless) return "G";
+    if (hasUngendered) return "?";
   }
 
   return normalized;
@@ -174,46 +174,88 @@ function raritySummary(assets: Asset[]): string | null {
 
 export default function Home() {
   const [pair, setPair] = useState<MatchupResponse["pair"] | null>(null);
+  const [prefetchedPair, setPrefetchedPair] = useState<MatchupResponse["pair"] | null>(null);
   const [voter, setVoter] = useState<MatchupResponse["voter"] | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [statusText, setStatusText] = useState<string>("Loading next arena matchup...");
   const [lastXpGain, setLastXpGain] = useState<number | null>(null);
   const [swipeDeltaX, setSwipeDeltaX] = useState(0);
+  const [swipeActive, setSwipeActive] = useState(false);
   const swipeStartXRef = useRef<number | null>(null);
+  const swipeRafRef = useRef<number | null>(null);
+  const pendingSwipeDeltaRef = useRef(0);
+  const prefetchingRef = useRef(false);
 
   const canVote = Boolean(pair) && !loading && !submitting;
 
-  const loadNextMatchup = useCallback(async (excludePairId?: string) => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams();
-      if (excludePairId) params.set("excludePairId", excludePairId);
-      const path = params.size ? `/api/matchups/next?${params.toString()}` : "/api/matchups/next";
+  const fetchMatchup = useCallback(async (excludePairId?: string): Promise<MatchupResponse> => {
+    const params = new URLSearchParams();
+    if (excludePairId) params.set("excludePairId", excludePairId);
+    const path = params.size ? `/api/matchups/next?${params.toString()}` : "/api/matchups/next";
 
-      const response = await fetch(path, {
-        method: "GET",
-        credentials: "include",
-        headers: { accept: "application/json" },
-      });
-      const data = (await response.json()) as MatchupResponse;
+    const response = await fetch(path, {
+      method: "GET",
+      credentials: "include",
+      headers: { accept: "application/json" },
+    });
+    const data = (await response.json()) as MatchupResponse;
 
-      if (!response.ok || !data.ok) {
-        setPair(null);
-        setStatusText(data.error || "Could not load matchup.");
-        return;
-      }
-
-      setPair(data.pair);
-      setVoter(data.voter);
-      setStatusText("Swipe or tap an arena side.");
-    } catch {
-      setPair(null);
-      setStatusText("Network error while loading matchup.");
-    } finally {
-      setLoading(false);
+    if (!response.ok || !data.ok) {
+      throw new Error(data.error || "Could not load matchup.");
     }
+
+    return data;
   }, []);
+
+  const prefetchNextMatchup = useCallback(
+    async (excludePairId: string) => {
+      if (prefetchingRef.current) return;
+      prefetchingRef.current = true;
+      try {
+        const data = await fetchMatchup(excludePairId);
+        if (!data.pair || data.pair.id === excludePairId) return;
+
+        setPrefetchedPair(data.pair);
+
+        if (typeof window !== "undefined") {
+          const spriteKeys = [...new Set([...data.pair.leftAssets, ...data.pair.rightAssets].map((asset) => asset.key))].slice(
+            0,
+            PREFETCH_ASSET_LIMIT
+          );
+          for (const assetKey of spriteKeys) {
+            const img = new window.Image();
+            img.src = spriteUrlForAssetKey(assetKey);
+          }
+        }
+      } catch {
+        // Ignore prefetch errors and fall back to normal loading.
+      } finally {
+        prefetchingRef.current = false;
+      }
+    },
+    [fetchMatchup]
+  );
+
+  const loadNextMatchup = useCallback(
+    async (excludePairId?: string) => {
+      setLoading(true);
+      try {
+        const data = await fetchMatchup(excludePairId);
+        setPair(data.pair);
+        setVoter(data.voter);
+        setPrefetchedPair(null);
+        setStatusText("Swipe or tap an arena side.");
+        void prefetchNextMatchup(data.pair.id);
+      } catch (error) {
+        setPair(null);
+        setStatusText(error instanceof Error ? error.message : "Network error while loading matchup.");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [fetchMatchup, prefetchNextMatchup]
+  );
 
   const submitVote = useCallback(
     async (selectedSide: VoteSide) => {
@@ -249,21 +291,44 @@ export default function Home() {
           totalVotes: data.voter.totalVotes,
         });
         setLastXpGain(data.voter.xpGain);
-        setStatusText(`Vote saved. +${data.voter.xpGain} XP`);
-        await loadNextMatchup(pair.id);
+
+        const bufferedPair = prefetchedPair && prefetchedPair.id !== pair.id ? prefetchedPair : null;
+        if (bufferedPair) {
+          setPair(bufferedPair);
+          setPrefetchedPair(null);
+          setStatusText(`Vote saved. +${data.voter.xpGain} XP`);
+          void prefetchNextMatchup(bufferedPair.id);
+        } else {
+          setStatusText(`Vote saved. +${data.voter.xpGain} XP`);
+          await loadNextMatchup(pair.id);
+        }
       } catch {
         setStatusText("Network error while submitting vote.");
       } finally {
         setSubmitting(false);
+        setSwipeActive(false);
+        pendingSwipeDeltaRef.current = 0;
+        if (swipeRafRef.current != null) {
+          window.cancelAnimationFrame(swipeRafRef.current);
+          swipeRafRef.current = null;
+        }
         setSwipeDeltaX(0);
       }
     },
-    [loadNextMatchup, pair, submitting]
+    [loadNextMatchup, pair, prefetchedPair, prefetchNextMatchup, submitting]
   );
 
   useEffect(() => {
     void loadNextMatchup();
   }, [loadNextMatchup]);
+
+  useEffect(() => {
+    return () => {
+      if (swipeRafRef.current != null) {
+        window.cancelAnimationFrame(swipeRafRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -286,10 +351,28 @@ export default function Home() {
   }, [submitVote]);
 
   const modeLabel = pair?.matchupMode || "1v1";
+  const matchupPrompt = pair?.prompt || "Which side wins this matchup?";
   const swipeDirection = swipeDeltaX > 16 ? "RIGHT" : swipeDeltaX < -16 ? "LEFT" : null;
+  const swipeProgress = clamp(Math.abs(swipeDeltaX) / SWIPE_THRESHOLD_PX, 0, 1);
+  const swipeReady = swipeProgress >= 1;
+  const swipeStatusLabel = !swipeActive
+    ? ""
+    : swipeDirection
+      ? swipeReady
+        ? `Release to vote ${swipeDirection}`
+        : `Choosing ${swipeDirection}`
+      : "Swipe toward your pick";
+  const swipeStatusToneClass = !swipeDirection
+    ? "text-slate-700 dark:text-slate-200"
+    : swipeDirection === "LEFT"
+      ? "text-rose-700 dark:text-rose-300"
+      : "text-emerald-700 dark:text-emerald-300";
   const arenaTransform = {
     transform: `translateX(${clamp(swipeDeltaX / 6, -24, 24)}px) rotate(${clamp(swipeDeltaX / 28, -4, 4)}deg)`,
   };
+  const handleVoteLeft = useCallback(() => void submitVote("LEFT"), [submitVote]);
+  const handleVoteRight = useCallback(() => void submitVote("RIGHT"), [submitVote]);
+  const handleVoteSkip = useCallback(() => void submitVote("SKIP"), [submitVote]);
 
   return (
     <div className="relative min-h-screen overflow-hidden">
@@ -330,18 +413,39 @@ export default function Home() {
         </section>
 
         <section
-          className="mt-5 flex flex-1 items-center"
+          className="swipe-gesture-surface relative mt-5 flex items-start"
           onPointerDown={(event) => {
+            if (event.pointerType === "mouse") return;
+            if (!canVote) return;
             swipeStartXRef.current = event.clientX;
+            pendingSwipeDeltaRef.current = 0;
+            setSwipeDeltaX(0);
+            setSwipeActive(true);
+            if (event.currentTarget.hasPointerCapture?.(event.pointerId)) return;
+            event.currentTarget.setPointerCapture?.(event.pointerId);
           }}
           onPointerMove={(event) => {
             const start = swipeStartXRef.current;
             if (start == null || !canVote) return;
-            setSwipeDeltaX(event.clientX - start);
+            pendingSwipeDeltaRef.current = event.clientX - start;
+            if (swipeRafRef.current != null) return;
+            swipeRafRef.current = window.requestAnimationFrame(() => {
+              setSwipeDeltaX(pendingSwipeDeltaRef.current);
+              swipeRafRef.current = null;
+            });
           }}
-          onPointerUp={() => {
-            const delta = swipeDeltaX;
+          onPointerUp={(event) => {
+            const delta = pendingSwipeDeltaRef.current || swipeDeltaX;
             swipeStartXRef.current = null;
+            pendingSwipeDeltaRef.current = 0;
+            setSwipeActive(false);
+            if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+              event.currentTarget.releasePointerCapture?.(event.pointerId);
+            }
+            if (swipeRafRef.current != null) {
+              window.cancelAnimationFrame(swipeRafRef.current);
+              swipeRafRef.current = null;
+            }
             if (!canVote) {
               setSwipeDeltaX(0);
               return;
@@ -352,24 +456,34 @@ export default function Home() {
             }
             void submitVote(delta > 0 ? "RIGHT" : "LEFT");
           }}
-          onPointerCancel={() => {
+          onPointerCancel={(event) => {
             swipeStartXRef.current = null;
+            pendingSwipeDeltaRef.current = 0;
+            setSwipeActive(false);
+            if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+              event.currentTarget.releasePointerCapture?.(event.pointerId);
+            }
+            if (swipeRafRef.current != null) {
+              window.cancelAnimationFrame(swipeRafRef.current);
+              swipeRafRef.current = null;
+            }
             setSwipeDeltaX(0);
           }}
         >
           <div
-            className="mx-auto grid w-full min-h-[56vh] max-w-[1040px] items-stretch gap-3 transition-transform duration-150 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] md:gap-5"
+            className="mx-auto grid w-full min-h-[44vh] max-w-[1040px] items-stretch gap-3 transition-transform duration-150 will-change-transform md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] md:gap-5"
             style={arenaTransform}
           >
             <VoteCard
               key={`left-${pair?.id || "empty"}`}
               sideLabel="LEFT"
               assets={pair?.leftAssets || (pair?.leftAsset ? [pair.leftAsset] : [])}
-              prompt={pair?.prompt || "Which side wins this matchup?"}
               disabled={!canVote}
-              onPick={() => void submitVote("LEFT")}
+              onPick={handleVoteLeft}
               tone="left"
               swipeHint={swipeDirection === "LEFT"}
+              swipeStrength={swipeProgress}
+              mutedBySwipe={swipeDirection === "RIGHT"}
             />
 
             <div className="hidden items-center justify-center md:flex">
@@ -382,14 +496,29 @@ export default function Home() {
               key={`right-${pair?.id || "empty"}`}
               sideLabel="RIGHT"
               assets={pair?.rightAssets || (pair?.rightAsset ? [pair.rightAsset] : [])}
-              prompt={pair?.prompt || "Which side wins this matchup?"}
               disabled={!canVote}
-              onPick={() => void submitVote("RIGHT")}
+              onPick={handleVoteRight}
               tone="right"
               swipeHint={swipeDirection === "RIGHT"}
+              swipeStrength={swipeProgress}
+              mutedBySwipe={swipeDirection === "LEFT"}
             />
           </div>
+          {swipeActive ? (
+            <div className="pointer-events-none absolute left-1/2 top-2 z-10 -translate-x-1/2">
+              <div
+                className={`glass-panel rounded-full px-4 py-1.5 text-xs font-extrabold uppercase tracking-[0.14em] ${swipeStatusToneClass}`}
+              >
+                {swipeStatusLabel}
+              </div>
+            </div>
+          ) : null}
         </section>
+        <p className="mt-2 text-center text-sm font-medium text-slate-600 dark:text-slate-300">{matchupPrompt}</p>
+        <p className="mt-1 text-center text-xs font-semibold text-slate-600 dark:text-slate-400 md:hidden">
+          Swipe toward your pick: <span className="text-rose-700 dark:text-rose-300">← LEFT</span> •{" "}
+          <span className="text-emerald-700 dark:text-emerald-300">RIGHT →</span>
+        </p>
 
         <section className="sticky bottom-0 z-20 mt-6">
           <div className="glass-panel rounded-2xl px-3 py-3 shadow-lg shadow-slate-900/10">
@@ -399,21 +528,21 @@ export default function Home() {
                 hint="←"
                 tone="left"
                 disabled={!canVote}
-                onClick={() => void submitVote("LEFT")}
+                onClick={handleVoteLeft}
               />
               <ActionButton
                 label="Skip"
                 hint="Space"
                 tone="skip"
                 disabled={!canVote}
-                onClick={() => void submitVote("SKIP")}
+                onClick={handleVoteSkip}
               />
               <ActionButton
                 label="Right"
                 hint="→"
                 tone="right"
                 disabled={!canVote}
-                onClick={() => void submitVote("RIGHT")}
+                onClick={handleVoteRight}
               />
             </div>
           </div>
@@ -428,7 +557,7 @@ export default function Home() {
   );
 }
 
-function StatusChip({
+const StatusChip = memo(function StatusChip({
   label,
   value,
   tone,
@@ -456,9 +585,11 @@ function StatusChip({
       </p>
     </div>
   );
-}
+});
 
-function ActionButton({
+StatusChip.displayName = "StatusChip";
+
+const ActionButton = memo(function ActionButton({
   label,
   hint,
   tone,
@@ -489,37 +620,46 @@ function ActionButton({
       <span className="text-[10px] font-semibold uppercase tracking-[0.18em] opacity-85">{hint}</span>
     </button>
   );
-}
+});
 
-function VoteCard({
+ActionButton.displayName = "ActionButton";
+
+const VoteCard = memo(function VoteCard({
   sideLabel,
   assets,
-  prompt,
   disabled,
   onPick,
   tone,
   swipeHint,
+  swipeStrength,
+  mutedBySwipe,
 }: {
   sideLabel: "LEFT" | "RIGHT";
   assets: Asset[];
-  prompt: string;
   disabled: boolean;
   onPick: () => void;
   tone: "left" | "right";
   swipeHint: boolean;
+  swipeStrength: number;
+  mutedBySwipe: boolean;
 }) {
   const [failedAssetKeys, setFailedAssetKeys] = useState<string[]>([]);
   const activeAssets = assets.slice(0, 2);
   const titleNames = activeAssets.length ? activeAssets.map((asset) => displayAssetName(asset)) : ["Loading..."];
-  const rarityTags = activeAssets.map((asset) => ({
-    key: asset.key,
-    name: displayAssetName(asset),
-    male: formatRarityCountOrNull(asset.rarity?.breakdown?.male),
-    female: formatRarityCountOrNull(asset.rarity?.breakdown?.female),
-    genderless: formatRarityCountOrNull(asset.rarity?.breakdown?.genderless),
-    ungendered: formatRarityCountOrNull(asset.rarity?.breakdown?.ungendered),
-    total: formatRarityCountOrNull(asset.rarity?.breakdown?.total ?? asset.rarity?.count),
-  }));
+  const rarityTags = activeAssets.map((asset) => {
+    const parsed = parseAssetNameAndGender(asset.key);
+    const resolvedGender = normalizeDisplayGender(asset, parsed.gender);
+    return {
+      key: asset.key,
+      name: displayAssetName(asset),
+      resolvedGender,
+      male: formatRarityCountOrNull(asset.rarity?.breakdown?.male),
+      female: formatRarityCountOrNull(asset.rarity?.breakdown?.female),
+      genderless: formatRarityCountOrNull(asset.rarity?.breakdown?.genderless),
+      ungendered: formatRarityCountOrNull(asset.rarity?.breakdown?.ungendered),
+      total: formatRarityCountOrNull(asset.rarity?.breakdown?.total ?? asset.rarity?.count),
+    };
+  });
   const avgElo = activeAssets.length
     ? activeAssets.reduce((sum, asset) => sum + (Number(asset.elo) || 1500), 0) / activeAssets.length
     : 1500;
@@ -528,13 +668,32 @@ function VoteCard({
     tone === "left"
       ? "border-cyan-300/80 from-cyan-100/85 via-white to-cyan-50/70 dark:border-cyan-700/80 dark:from-slate-900 dark:via-slate-900 dark:to-cyan-950/45"
       : "border-amber-300/80 from-amber-100/85 via-white to-orange-50/70 dark:border-amber-700/80 dark:from-slate-900 dark:via-slate-900 dark:to-amber-950/45";
+  const visualFilter = swipeHint
+    ? `brightness(${(1 + swipeStrength * 0.08).toFixed(3)}) saturate(${(1 + swipeStrength * 0.12).toFixed(3)})`
+    : mutedBySwipe
+      ? `brightness(${(1 - swipeStrength * 0.18).toFixed(3)}) saturate(${(1 - swipeStrength * 0.22).toFixed(3)})`
+      : undefined;
 
   return (
-    <button
-      type="button"
-      onClick={onPick}
-      disabled={disabled}
-      className={`relative mx-auto flex w-full max-w-[420px] flex-col overflow-hidden rounded-3xl border bg-gradient-to-b p-4 text-left shadow-md transition duration-200 hover:-translate-y-0.5 hover:shadow-xl dark:shadow-black/35 disabled:cursor-not-allowed disabled:opacity-60 aspect-[5/7] sm:p-5 ${toneClasses} ${swipeHint ? "ring-4 ring-emerald-300/50 dark:ring-emerald-500/45" : ""}`}
+    <div
+      role="button"
+      aria-disabled={disabled}
+      tabIndex={disabled ? -1 : 0}
+      onClick={() => {
+        if (disabled) return;
+        const selection = typeof window !== "undefined" ? window.getSelection()?.toString() : "";
+        if (selection && selection.trim().length > 0) return;
+        onPick();
+      }}
+      onKeyDown={(event) => {
+        if (disabled) return;
+        if (event.key === "Enter") {
+          event.preventDefault();
+          onPick();
+        }
+      }}
+      className={`relative mx-auto flex w-full max-w-[420px] flex-col overflow-hidden rounded-3xl border bg-gradient-to-b p-4 text-left shadow-md transition duration-200 hover:-translate-y-0.5 hover:shadow-xl dark:shadow-black/35 aspect-[5/6] sm:p-5 ${toneClasses} ${disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer"} ${swipeHint ? "ring-4 ring-emerald-300/50 shadow-xl shadow-emerald-500/20 dark:ring-emerald-500/45 dark:shadow-emerald-500/10" : ""} ${mutedBySwipe ? "opacity-85" : ""}`}
+      style={{ filter: visualFilter }}
     >
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(80%_120%_at_90%_0%,rgba(255,255,255,0.75),transparent_60%)] dark:bg-[radial-gradient(80%_120%_at_90%_0%,rgba(51,65,85,0.45),transparent_62%)]" />
       <div className="relative flex h-full flex-col">
@@ -548,12 +707,10 @@ function VoteCard({
         </div>
 
         <div className="flex flex-1 flex-col justify-center">
-          <div className="mt-3 flex h-32 items-center justify-center gap-2 rounded-2xl border border-white/70 bg-white/70 px-2 py-2 shadow-inner dark:border-slate-700 dark:bg-slate-900/65 sm:h-36 md:h-40">
+          <div className="mt-3 flex h-28 items-center justify-center gap-2 rounded-2xl border border-white/70 bg-white/70 px-2 py-2 shadow-inner dark:border-slate-700 dark:bg-slate-900/65 sm:h-32 md:h-36">
             {activeAssets.length ? (
               activeAssets.map((asset) => {
-                const params = new URLSearchParams({ assetKey: asset.key });
-                if (SPRITE_PROVIDER !== "tppc") params.set("prefer", SPRITE_PROVIDER);
-                const spriteUrl = `/api/sprites?${params.toString()}`;
+                const spriteUrl = spriteUrlForAssetKey(asset.key);
                 const imageFailed = failedAssetKeys.includes(asset.key);
 
                 return imageFailed ? (
@@ -597,28 +754,33 @@ function VoteCard({
               <span className="block line-clamp-2 leading-tight">{titleNames[0]}</span>
             )}
           </h2>
-          <p className="mt-2 line-clamp-2 text-center text-sm text-slate-700 dark:text-slate-300">{prompt}</p>
-          <div className="mt-3 grid gap-1.5 text-left">
+          <div className="mt-3 grid gap-1.5">
             {rarityTags.map((tag) => (
               <div
                 key={`${tag.key}-rarity`}
-                className="rounded-xl border border-slate-300 bg-white/85 px-2.5 py-1.5 text-[10px] font-semibold tracking-wide text-slate-700 dark:border-slate-600 dark:bg-slate-900/85 dark:text-slate-300"
+                className="flex flex-col items-center justify-center rounded-xl border border-slate-300 bg-white/85 px-2.5 py-1.5 text-center text-[10px] font-semibold tracking-wide text-slate-700 dark:border-slate-600 dark:bg-slate-900/85 dark:text-slate-300"
               >
-              <p className="truncate text-[10px] font-bold uppercase tracking-wide">{tag.name}</p>
-              <p className="mt-0.5 text-[10px] font-semibold text-slate-700 dark:text-slate-300">
-                {[
-                  tag.male ? `♂ ${tag.male}` : null,
-                  tag.female ? `♀ ${tag.female}` : null,
-                  tag.genderless ? `⚲ ${tag.genderless}` : null,
-                  tag.ungendered ? `(?) ${tag.ungendered}` : null,
-                  tag.total ? `Total ${tag.total}` : null,
-                ]
-                  .filter(Boolean)
-                  .join(" • ") || "No rarity data"}
-              </p>
-            </div>
-          ))}
-        </div>
+                <p className="line-clamp-1 max-w-full text-[10px] font-bold uppercase tracking-wide text-center">{tag.name}</p>
+                <p className="mt-0.5 text-[10px] font-semibold text-center text-slate-700 dark:text-slate-300">
+                  {(tag.resolvedGender === "G"
+                    ? [
+                        tag.genderless ? `G ${tag.genderless}` : tag.ungendered ? `G ${tag.ungendered}` : null,
+                        tag.total ? `Total ${tag.total}` : null,
+                      ]
+                    : [
+                        tag.male ? `♂ ${tag.male}` : null,
+                        tag.female ? `♀ ${tag.female}` : null,
+                        tag.genderless ? `G ${tag.genderless}` : null,
+                        tag.ungendered ? `(?) ${tag.ungendered}` : null,
+                        tag.total ? `Total ${tag.total}` : null,
+                      ]
+                  )
+                    .filter(Boolean)
+                    .join(" • ") || "No rarity data"}
+                </p>
+              </div>
+            ))}
+          </div>
         </div>
 
         <div className="mt-3 flex items-center justify-between gap-2">
@@ -636,6 +798,8 @@ function VoteCard({
           </span>
         </div>
       </div>
-    </button>
+    </div>
   );
-}
+});
+
+VoteCard.displayName = "VoteCard";

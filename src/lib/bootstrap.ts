@@ -9,7 +9,9 @@ import {
 import { canonicalPairKey } from "@/lib/pair-key";
 
 const BOOTSTRAP_CURSOR_SOURCE = "web_bootstrap_seed_version";
-const BOOTSTRAP_SEED_VERSION = "2026-02-13-matchup-modes-elo-v1";
+const BOOTSTRAP_SEED_VERSION = "2026-02-14-seed-expansion-snorlax-sudowoodo-volcarona-v1";
+const BOOTSTRAP_FALLBACK_VERSION = `${BOOTSTRAP_SEED_VERSION}:fallback`;
+const GOLDEN_PREFIX = "Golden";
 
 async function seedFromMarketpollCsv(prisma: PrismaClient): Promise<boolean> {
   const csvText = loadMarketpollSeedCsvFromRepo();
@@ -141,16 +143,83 @@ async function seedFallbackDefaults(prisma: PrismaClient): Promise<void> {
   });
 }
 
+async function hasActiveGoldenPairs(prisma: PrismaClient): Promise<boolean> {
+  const count = await prisma.votingPair.count({
+    where: {
+      active: true,
+      leftAsset: {
+        key: {
+          startsWith: GOLDEN_PREFIX,
+        },
+      },
+      rightAsset: {
+        key: {
+          startsWith: GOLDEN_PREFIX,
+        },
+      },
+    },
+  });
+  return count > 0;
+}
+
+async function deactivateNonGoldenRecords(prisma: PrismaClient): Promise<void> {
+  await prisma.asset.updateMany({
+    where: {
+      key: {
+        not: {
+          startsWith: GOLDEN_PREFIX,
+        },
+      },
+    },
+    data: {
+      active: false,
+    },
+  });
+
+  const pairs = await prisma.votingPair.findMany({
+    where: { active: true },
+    select: {
+      id: true,
+      leftAsset: { select: { key: true } },
+      rightAsset: { select: { key: true } },
+    },
+  });
+
+  const nonGoldenPairIds = pairs
+    .filter(
+      (pair) => !pair.leftAsset.key.startsWith(GOLDEN_PREFIX) || !pair.rightAsset.key.startsWith(GOLDEN_PREFIX)
+    )
+    .map((pair) => pair.id);
+
+  if (!nonGoldenPairIds.length) return;
+
+  await prisma.votingPair.updateMany({
+    where: {
+      id: {
+        in: nonGoldenPairIds,
+      },
+    },
+    data: {
+      active: false,
+    },
+  });
+}
+
 export async function ensureBootstrapData(prisma: PrismaClient): Promise<void> {
   const cursor = await prisma.ingestionCursor.findUnique({
     where: { source: BOOTSTRAP_CURSOR_SOURCE },
     select: { lastValue: true },
   });
 
-  if (cursor?.lastValue === BOOTSTRAP_SEED_VERSION) return;
+  const alreadySeeded = cursor?.lastValue === BOOTSTRAP_SEED_VERSION;
+  if (alreadySeeded && (await hasActiveGoldenPairs(prisma))) {
+    return;
+  }
+
+  let seededFromMarketpoll = false;
 
   try {
-    await seedFromMarketpollCsv(prisma);
+    seededFromMarketpoll = await seedFromMarketpollCsv(prisma);
   } catch (error) {
     if (process.env.NODE_ENV !== "production") {
       console.warn(
@@ -158,6 +227,25 @@ export async function ensureBootstrapData(prisma: PrismaClient): Promise<void> {
         error instanceof Error ? error.message : error
       );
     }
+  }
+
+  if (seededFromMarketpoll) {
+    await deactivateNonGoldenRecords(prisma);
+    await prisma.ingestionCursor.upsert({
+      where: { source: BOOTSTRAP_CURSOR_SOURCE },
+      create: {
+        source: BOOTSTRAP_CURSOR_SOURCE,
+        lastValue: BOOTSTRAP_SEED_VERSION,
+      },
+      update: {
+        lastValue: BOOTSTRAP_SEED_VERSION,
+      },
+    });
+    return;
+  }
+
+  const hasAnyPairs = await prisma.votingPair.count({ where: { active: true } });
+  if (!hasAnyPairs) {
     await seedFallbackDefaults(prisma);
   }
 
@@ -165,10 +253,10 @@ export async function ensureBootstrapData(prisma: PrismaClient): Promise<void> {
     where: { source: BOOTSTRAP_CURSOR_SOURCE },
     create: {
       source: BOOTSTRAP_CURSOR_SOURCE,
-      lastValue: BOOTSTRAP_SEED_VERSION,
+      lastValue: BOOTSTRAP_FALLBACK_VERSION,
     },
     update: {
-      lastValue: BOOTSTRAP_SEED_VERSION,
+      lastValue: BOOTSTRAP_FALLBACK_VERSION,
     },
   });
 }

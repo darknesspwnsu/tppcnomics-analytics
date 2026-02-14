@@ -79,11 +79,37 @@ function findEntryByName(name: string): RarityEntry | null {
 }
 
 function pickColumn(entry: RarityEntry, gender: string): RarityColumn {
-  if (gender === "M") return "male";
-  if (gender === "F") return "female";
-
+  const normalized = String(gender || "").trim().toUpperCase();
+  const male = Number(entry.male) || 0;
+  const female = Number(entry.female) || 0;
   const genderless = Number(entry.genderless) || 0;
   const ungendered = Number(entry.ungendered) || 0;
+
+  if (normalized === "M") {
+    if (male > 0) return "male";
+    if (female <= 0 && genderless > 0) return "genderless";
+    if (female <= 0 && ungendered > 0) return "ungendered";
+    return "total";
+  }
+  if (normalized === "F") {
+    if (female > 0) return "female";
+    if (male <= 0 && genderless > 0) return "genderless";
+    if (male <= 0 && ungendered > 0) return "ungendered";
+    return "total";
+  }
+  if (normalized === "G") {
+    if (genderless > 0) return "genderless";
+    if (ungendered > 0) return "ungendered";
+    return "total";
+  }
+  if (normalized === "U") {
+    if (ungendered > 0) return "ungendered";
+    if (genderless > 0) return "genderless";
+    return "total";
+  }
+
+  if (male <= 0 && female <= 0 && genderless > 0) return "genderless";
+  if (male <= 0 && female <= 0 && ungendered > 0) return "ungendered";
 
   if (genderless > 0 && ungendered > 0) return "total";
   if (genderless > 0) return "genderless";

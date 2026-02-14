@@ -30,29 +30,40 @@ export async function POST(request: NextRequest) {
 
     const session = getOrCreateVisitorId(request);
 
-    const pair = await prisma.votingPair.findUnique({
-      where: { id: parsed.data.pairId },
-      select: {
-        id: true,
-        pairKey: true,
-        matchupMode: true,
-        active: true,
-        leftAssetKeys: true,
-        rightAssetKeys: true,
-        leftAssetId: true,
-        rightAssetId: true,
-        leftAsset: {
-          select: {
-            key: true,
+    const [pair, existingVoter] = await Promise.all([
+      prisma.votingPair.findUnique({
+        where: { id: parsed.data.pairId },
+        select: {
+          id: true,
+          pairKey: true,
+          matchupMode: true,
+          active: true,
+          leftAssetKeys: true,
+          rightAssetKeys: true,
+          leftAssetId: true,
+          rightAssetId: true,
+          leftAsset: {
+            select: {
+              key: true,
+            },
+          },
+          rightAsset: {
+            select: {
+              key: true,
+            },
           },
         },
-        rightAsset: {
-          select: {
-            key: true,
-          },
+      }),
+      prisma.voter.findUnique({
+        where: { visitorId: session.visitorId },
+        select: {
+          streakDays: true,
+          lastVotedAt: true,
+          xp: true,
+          totalVotes: true,
         },
-      },
-    });
+      }),
+    ]);
 
     if (!pair || !pair.active) {
       return NextResponse.json(
@@ -65,16 +76,6 @@ export async function POST(request: NextRequest) {
     }
 
     const now = new Date();
-
-    const existingVoter = await prisma.voter.findUnique({
-      where: { visitorId: session.visitorId },
-      select: {
-        streakDays: true,
-        lastVotedAt: true,
-        xp: true,
-        totalVotes: true,
-      },
-    });
 
     const progression = computeStreakAndXp(existingVoter);
     const selectedSide = parsed.data.selectedSide as VoteSide;

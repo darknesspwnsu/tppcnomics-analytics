@@ -3,6 +3,11 @@
 import { useEffect, useState } from "react";
 
 const THEME_STORAGE_KEY = "tppcnomics-theme";
+const TRACK_WIDTH_PX = 78;
+const TRACK_HEIGHT_PX = 42;
+const TRACK_PADDING_PX = 4;
+const THUMB_SIZE_PX = 34;
+const THUMB_TRAVEL_PX = TRACK_WIDTH_PX - THUMB_SIZE_PX - TRACK_PADDING_PX * 2;
 
 type ThemeMode = "dark" | "light";
 
@@ -49,21 +54,30 @@ export function ThemeToggle({ className = "" }: { className?: string }) {
     <button
       type="button"
       onClick={toggleTheme}
-      className={`fixed bottom-24 right-4 z-40 h-11 w-[4.75rem] rounded-full border border-slate-300/90 bg-white/90 p-1 shadow-lg shadow-slate-900/20 backdrop-blur transition hover:brightness-105 dark:border-slate-600/90 dark:bg-slate-900/85 dark:shadow-black/35 sm:bottom-5 sm:right-5 ${className}`}
+      className={`fixed z-40 box-content select-none overflow-hidden rounded-full border border-slate-300/90 bg-white/90 shadow-lg shadow-slate-900/20 backdrop-blur transition hover:brightness-105 dark:border-slate-600/90 dark:bg-slate-900/85 dark:shadow-black/35 [touch-action:manipulation] bottom-[calc(env(safe-area-inset-bottom)+5.25rem)] right-[calc(env(safe-area-inset-right)+0.75rem)] sm:bottom-[calc(env(safe-area-inset-bottom)+1rem)] sm:right-[calc(env(safe-area-inset-right)+1rem)] ${className}`}
       aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
       title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+      style={{
+        width: `${TRACK_WIDTH_PX}px`,
+        height: `${TRACK_HEIGHT_PX}px`,
+        minWidth: `${TRACK_WIDTH_PX}px`,
+        minHeight: `${TRACK_HEIGHT_PX}px`,
+        padding: `${TRACK_PADDING_PX}px`,
+      }}
     >
       <span className="sr-only">Toggle theme</span>
 
-      <span className="pointer-events-none absolute inset-y-0 left-2 flex items-center text-amber-500">
-        <SunIcon />
-      </span>
-      <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-slate-500 dark:text-slate-300">
-        <MoonIcon />
-      </span>
-
       <span
-        className={`pointer-events-none absolute left-1 top-1 inline-flex h-9 w-9 items-center justify-center rounded-full bg-slate-900 text-white shadow-md transition-transform duration-200 dark:bg-slate-100 dark:text-slate-900 ${theme === "dark" ? "translate-x-[2.1rem]" : "translate-x-0"}`}
+        className={`pointer-events-none absolute left-[4px] top-[4px] inline-flex items-center justify-center rounded-full border shadow-md transition-transform duration-200 ${
+          theme === "dark"
+            ? "border-slate-200 bg-slate-100 text-slate-900"
+            : "border-slate-700 bg-slate-900 text-slate-100"
+        }`}
+        style={{
+          width: `${THUMB_SIZE_PX}px`,
+          height: `${THUMB_SIZE_PX}px`,
+          transform: `translateX(${theme === "dark" ? THUMB_TRAVEL_PX : 0}px)`,
+        }}
       >
         {theme === "dark" ? <MoonIcon /> : <SunIcon />}
       </span>
