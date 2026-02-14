@@ -13,7 +13,12 @@ const BOOTSTRAP_SEED_VERSION = "2026-02-14-seed-snorlax-sudowoodo-exceptions-no-
 const BOOTSTRAP_FALLBACK_VERSION = `${BOOTSTRAP_SEED_VERSION}:fallback`;
 const GOLDEN_PREFIX = "Golden";
 
-async function seedFromMarketpollCsv(prisma: PrismaClient): Promise<boolean> {
+type SeedSyncState = {
+  seedAssetKeys: string[];
+  seedPairKeys: string[];
+};
+
+async function seedFromMarketpollCsv(prisma: PrismaClient): Promise<SeedSyncState> {
   const csvText = loadMarketpollSeedCsvFromRepo();
   const parsed = parseMarketpollSeedCsv(csvText);
 
@@ -29,15 +34,26 @@ async function seedFromMarketpollCsv(prisma: PrismaClient): Promise<boolean> {
   }
 
   const assetRows = buildSeedAssetRows(parsed.assets);
+  const seedAssetKeys = parsed.assets.map((asset) => asset.assetKey);
   await prisma.asset.createMany({
     data: assetRows,
     skipDuplicates: true,
+  });
+  await prisma.asset.updateMany({
+    where: {
+      key: {
+        in: seedAssetKeys,
+      },
+    },
+    data: {
+      active: true,
+    },
   });
 
   const seededAssets = await prisma.asset.findMany({
     where: {
       key: {
-        in: parsed.assets.map((asset) => asset.assetKey),
+        in: seedAssetKeys,
       },
     },
     select: {
@@ -75,13 +91,30 @@ async function seedFromMarketpollCsv(prisma: PrismaClient): Promise<boolean> {
     featured: boolean;
     active: boolean;
   }>;
+  const seedPairKeys = pairRows.map((pair) => pair.pairKey);
+  if (seedPairKeys.length < 100) {
+    throw new Error(`Seed CSV did not resolve enough persisted pairs (${seedPairKeys.length}).`);
+  }
 
   await prisma.votingPair.createMany({
     data: pairRows,
     skipDuplicates: true,
   });
+  await prisma.votingPair.updateMany({
+    where: {
+      pairKey: {
+        in: seedPairKeys,
+      },
+    },
+    data: {
+      active: true,
+    },
+  });
 
-  return true;
+  return {
+    seedAssetKeys,
+    seedPairKeys,
+  };
 }
 
 async function seedFallbackDefaults(prisma: PrismaClient): Promise<void> {
@@ -205,6 +238,59 @@ async function deactivateNonGoldenRecords(prisma: PrismaClient): Promise<void> {
   });
 }
 
+async function deactivateStaleGoldenRecords(prisma: PrismaClient, seedState: SeedSyncState): Promise<void> {
+  await prisma.asset.updateMany({
+    where: {
+      active: true,
+      key: {
+        startsWith: GOLDEN_PREFIX,
+        notIn: seedState.seedAssetKeys,
+      },
+    },
+    data: {
+      active: false,
+    },
+  });
+
+  const activeGoldenPairs = await prisma.votingPair.findMany({
+    where: {
+      active: true,
+      leftAsset: {
+        key: {
+          startsWith: GOLDEN_PREFIX,
+        },
+      },
+      rightAsset: {
+        key: {
+          startsWith: GOLDEN_PREFIX,
+        },
+      },
+    },
+    select: {
+      id: true,
+      pairKey: true,
+    },
+  });
+
+  const allowedPairKeys = new Set(seedState.seedPairKeys);
+  const staleGoldenPairIds = activeGoldenPairs
+    .filter((pair) => !allowedPairKeys.has(pair.pairKey))
+    .map((pair) => pair.id);
+
+  if (!staleGoldenPairIds.length) return;
+
+  await prisma.votingPair.updateMany({
+    where: {
+      id: {
+        in: staleGoldenPairIds,
+      },
+    },
+    data: {
+      active: false,
+    },
+  });
+}
+
 export async function ensureBootstrapData(prisma: PrismaClient): Promise<void> {
   const cursor = await prisma.ingestionCursor.findUnique({
     where: { source: BOOTSTRAP_CURSOR_SOURCE },
@@ -216,10 +302,10 @@ export async function ensureBootstrapData(prisma: PrismaClient): Promise<void> {
     return;
   }
 
-  let seededFromMarketpoll = false;
+  let seedState: SeedSyncState | null = null;
 
   try {
-    seededFromMarketpoll = await seedFromMarketpollCsv(prisma);
+    seedState = await seedFromMarketpollCsv(prisma);
   } catch (error) {
     if (process.env.NODE_ENV !== "production") {
       console.warn(
@@ -229,7 +315,8 @@ export async function ensureBootstrapData(prisma: PrismaClient): Promise<void> {
     }
   }
 
-  if (seededFromMarketpoll) {
+  if (seedState) {
+    await deactivateStaleGoldenRecords(prisma, seedState);
     await deactivateNonGoldenRecords(prisma);
     await prisma.ingestionCursor.upsert({
       where: { source: BOOTSTRAP_CURSOR_SOURCE },

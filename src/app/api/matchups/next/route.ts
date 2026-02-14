@@ -1,7 +1,8 @@
-import { VoteSource } from "@prisma/client";
+import { Prisma, VoteSource } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 
 import { ensureBootstrapData } from "@/lib/bootstrap";
+import { pickRandomOffset, pickWeightedBucket } from "@/lib/matchup-picker";
 import { getConfiguredMatchupModes, loadMarketpollSeedCsvFromRepo, parseMarketpollSeedCsv } from "@/lib/marketpoll-seeds";
 import { canonicalPairKey } from "@/lib/pair-key";
 import { prisma } from "@/lib/prisma";
@@ -32,23 +33,57 @@ function getValidSeedPairKeys(): string[] {
   return cachedValidPairKeys;
 }
 
-function pickWeightedRandomPairId(candidates: Array<{ id: string; featured: boolean }>): string | null {
-  if (!candidates.length) return null;
+async function pickPairIdForBucket(
+  where: Prisma.VotingPairWhereInput,
+  featured: boolean,
+  count: number
+): Promise<string | null> {
+  const offset = pickRandomOffset(count);
+  if (offset == null) return null;
 
-  let totalWeight = 0;
-  const weighted = candidates.map((candidate) => {
-    const weight = candidate.featured ? FEATURED_PAIR_WEIGHT : 1;
-    totalWeight += weight;
-    return { id: candidate.id, weight };
+  const picked = await prisma.votingPair.findFirst({
+    where: {
+      ...where,
+      featured,
+    },
+    select: { id: true },
+    orderBy: { id: "asc" },
+    skip: offset,
   });
 
-  let roll = Math.random() * totalWeight;
-  for (const candidate of weighted) {
-    roll -= candidate.weight;
-    if (roll <= 0) return candidate.id;
+  return picked?.id || null;
+}
+
+async function pickWeightedRandomPairId(where: Prisma.VotingPairWhereInput): Promise<string | null> {
+  const [featuredCount, normalCount] = await Promise.all([
+    prisma.votingPair.count({
+      where: {
+        ...where,
+        featured: true,
+      },
+    }),
+    prisma.votingPair.count({
+      where: {
+        ...where,
+        featured: false,
+      },
+    }),
+  ]);
+
+  const chosenBucket = pickWeightedBucket(featuredCount, normalCount, FEATURED_PAIR_WEIGHT);
+  if (!chosenBucket) return null;
+
+  if (chosenBucket === "featured") {
+    const featuredPick = await pickPairIdForBucket(where, true, featuredCount);
+    if (featuredPick) return featuredPick;
+    if (normalCount > 0) return pickPairIdForBucket(where, false, normalCount);
+    return null;
   }
 
-  return weighted[weighted.length - 1]?.id || null;
+  const normalPick = await pickPairIdForBucket(where, false, normalCount);
+  if (normalPick) return normalPick;
+  if (featuredCount > 0) return pickPairIdForBucket(where, true, featuredCount);
+  return null;
 }
 
 export async function GET(request: NextRequest) {
@@ -96,52 +131,34 @@ export async function GET(request: NextRequest) {
     excludedPairIds = [...new Set(excludedPairIds)];
     const validSeedPairKeys = getValidSeedPairKeys();
 
-    const filteredCandidates = await prisma.votingPair.findMany({
-      where: {
-        active: true,
-        ...(validSeedPairKeys.length ? { pairKey: { in: validSeedPairKeys } } : {}),
-        leftAsset: {
-          key: {
-            startsWith: GOLDEN_PREFIX,
-          },
+    const baseWhere: Prisma.VotingPairWhereInput = {
+      active: true,
+      ...(validSeedPairKeys.length ? { pairKey: { in: validSeedPairKeys } } : {}),
+      leftAsset: {
+        key: {
+          startsWith: GOLDEN_PREFIX,
         },
-        rightAsset: {
-          key: {
-            startsWith: GOLDEN_PREFIX,
-          },
+      },
+      rightAsset: {
+        key: {
+          startsWith: GOLDEN_PREFIX,
         },
-        ...(excludedPairIds.length ? { id: { notIn: excludedPairIds } } : {}),
       },
-      select: {
-        id: true,
-        featured: true,
-      },
-    });
+    };
 
-    let selectedPairId = pickWeightedRandomPairId(filteredCandidates);
+    const filteredWhere: Prisma.VotingPairWhereInput = excludedPairIds.length
+      ? {
+          ...baseWhere,
+          id: {
+            notIn: excludedPairIds,
+          },
+        }
+      : baseWhere;
+
+    let selectedPairId = await pickWeightedRandomPairId(filteredWhere);
 
     if (!selectedPairId) {
-      const fallbackCandidates = await prisma.votingPair.findMany({
-        where: {
-          active: true,
-          ...(validSeedPairKeys.length ? { pairKey: { in: validSeedPairKeys } } : {}),
-          leftAsset: {
-            key: {
-              startsWith: GOLDEN_PREFIX,
-            },
-          },
-          rightAsset: {
-            key: {
-              startsWith: GOLDEN_PREFIX,
-            },
-          },
-        },
-        select: {
-          id: true,
-          featured: true,
-        },
-      });
-      selectedPairId = pickWeightedRandomPairId(fallbackCandidates);
+      selectedPairId = await pickWeightedRandomPairId(baseWhere);
     }
 
     const pair = selectedPairId

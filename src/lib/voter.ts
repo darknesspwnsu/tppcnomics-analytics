@@ -4,13 +4,15 @@ function dayKeyUtc(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-export function computeStreakAndXp(voter: Pick<Voter, "streakDays" | "lastVotedAt" | "xp" | "totalVotes"> | null): {
+export function computeStreakAndXp(
+  voter: Pick<Voter, "streakDays" | "lastVotedAt" | "xp" | "totalVotes"> | null,
+  now = new Date()
+): {
   streakDays: number;
   xpGain: number;
   nextXp: number;
   nextTotalVotes: number;
 } {
-  const now = new Date();
   const today = dayKeyUtc(now);
 
   const yesterdayDate = new Date(now);

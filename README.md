@@ -1,36 +1,66 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# TPPCNomics Analytics
 
-## Getting Started
+Next.js + Prisma app for TPPC golden marketpoll voting, Elo scoring, and analytics dashboards.
 
-First, run the development server:
+## Setup
+
+1. Install dependencies:
+
+```bash
+npm install
+```
+
+2. Configure environment:
+
+- `DATABASE_URL`
+- `VISITOR_COOKIE_SECRET`
+- optional `MARKETPOLL_MATCHUP_MODES` (defaults to `1v1,1v2,2v1,2v2`)
+
+3. Generate Prisma client:
+
+```bash
+npx prisma generate
+```
+
+## Database Migrations
+
+Run migrations before starting production code:
+
+```bash
+npx prisma migrate deploy
+```
+
+This is required for the `VoteEvent(source, voterId, createdAt DESC)` hot-path index used by matchup exclusion queries.
+
+## Development
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Operational Notes
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Seed Sync Behavior
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+On bootstrap, the app loads `data/marketpoll_seeds.csv` and:
 
-## Learn More
+- inserts missing seed assets/pairs,
+- reactivates assets/pairs present in the current seed,
+- deactivates stale golden assets/pairs not present in the current seed,
+- deactivates non-golden assets/pairs for web marketpoll mode.
 
-To learn more about Next.js, take a look at the following resources:
+This keeps runtime voting candidates synchronized with the current seed file (including removals).
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### Transaction Reliability
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Vote writes run in serializable transactions with automatic retries on Prisma `P2034` serialization conflicts.
 
-## Deploy on Vercel
+This protects voter progression and score counters against lost updates under concurrent voting.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Quality Checks
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+npm run lint -- --max-warnings=0
+npm run typecheck
+npm test
+```

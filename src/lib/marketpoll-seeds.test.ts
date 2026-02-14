@@ -42,5 +42,12 @@ describe("parseMarketpollSeedCsv", () => {
     expect(parsed.pairs.length).toBeGreaterThan(800);
     expect(parsed.matchupModes).toEqual(["1v1", "1v2", "2v1", "2v2"]);
     expect(parsed.pairs.some((pair) => pair.matchupMode !== "1v1")).toBe(true);
+
+    // Volcarona should be excluded because Larvesta has a valid golden pre-evolution.
+    expect(parsed.assets.some((asset) => asset.assetKey.toLowerCase().includes("volcarona"))).toBe(false);
+
+    // Unknown gender should use ? and never U in canonical seed keys.
+    expect(parsed.assets.some((asset) => asset.assetKey.includes("|U"))).toBe(false);
+    expect(parsed.assets.some((asset) => asset.assetKey.includes("|?"))).toBe(true);
   });
 });

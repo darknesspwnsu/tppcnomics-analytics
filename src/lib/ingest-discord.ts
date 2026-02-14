@@ -62,7 +62,8 @@ export async function ingestDiscordPollRuns(
     const rightAssetKeys =
       Array.isArray(raw.rightAssets) && raw.rightAssets.length ? raw.rightAssets : [rightAssetKey];
     const matchupMode = `${leftAssetKeys.length}v${rightAssetKeys.length}`;
-    const pairKey = String(raw.pairKey || canonicalPairKey(leftAssetKeys, rightAssetKeys));
+    const externalPairKey = String(raw.pairKey || "").trim() || null;
+    const pairKey = canonicalPairKey(leftAssetKeys, rightAssetKeys);
     const pair = await prisma.votingPair.upsert({
       where: { pairKey },
       update: {
@@ -99,6 +100,7 @@ export async function ingestDiscordPollRuns(
       closedAt: toDate(raw.closedAtMs),
       metadata: {
         externalRunId: raw.externalRunId ?? null,
+        externalPairKey,
         result: raw.result ?? null,
         affectsScore: Boolean(raw.affectsScore),
         totalVotes: Number(raw.totalVotes ?? Number(raw.leftVotes || 0) + Number(raw.rightVotes || 0)),

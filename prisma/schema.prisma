@@ -108,6 +108,7 @@ model VoteEvent {
   @@index([createdAt(sort: Desc)])
   @@index([pairKey, createdAt(sort: Desc)])
   @@index([source, createdAt(sort: Desc)])
+  @@index([source, voterId, createdAt(sort: Desc)])
   @@index([selectedAssetId, createdAt(sort: Desc)])
   @@unique([source, pollMessageId, selectedSide], map: "voteevent_source_poll_side_uniq")
 }

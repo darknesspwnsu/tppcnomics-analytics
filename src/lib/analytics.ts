@@ -286,12 +286,15 @@ export async function getAnalyticsSnapshot(): Promise<AnalyticsSnapshot> {
 
   const scoreByAssetId = new Map(allScores.map((score) => [score.assetId, score]));
 
-  const leaderboard = allScores.slice(0, 12).map((score) => {
-    const decisivePolls = score.wins + score.losses;
-    return {
-      assetId: score.assetId,
-      key: score.asset.key,
-      label: labelFromAssetKey(score.asset.key),
+  const leaderboard = allScores
+    .filter((score) => score.asset.active)
+    .slice(0, 12)
+    .map((score) => {
+      const decisivePolls = score.wins + score.losses;
+      return {
+        assetId: score.assetId,
+        key: score.asset.key,
+        label: labelFromAssetKey(score.asset.key),
       tier: score.asset.tier,
       elo: round(score.elo, 2),
       pollsCount: score.pollsCount,
@@ -299,8 +302,8 @@ export async function getAnalyticsSnapshot(): Promise<AnalyticsSnapshot> {
       votesFor: score.votesFor,
       votesAgainst: score.votesAgainst,
       lastPollAt: score.lastPollAt ? score.lastPollAt.toISOString() : null,
-    };
-  });
+      };
+    });
 
   const trendByDay = new Map(
     trendRows.map((row) => [

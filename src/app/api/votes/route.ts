@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { applyEloFromVotesBundles } from "@/lib/elo";
 import { prisma } from "@/lib/prisma";
+import { withSerializableRetry } from "@/lib/tx-retry";
 import { getOrCreateVisitorId, issueVisitorCookie } from "@/lib/visitor-session";
 import { computeStreakAndXp } from "@/lib/voter";
 
@@ -30,40 +31,29 @@ export async function POST(request: NextRequest) {
 
     const session = getOrCreateVisitorId(request);
 
-    const [pair, existingVoter] = await Promise.all([
-      prisma.votingPair.findUnique({
-        where: { id: parsed.data.pairId },
-        select: {
-          id: true,
-          pairKey: true,
-          matchupMode: true,
-          active: true,
-          leftAssetKeys: true,
-          rightAssetKeys: true,
-          leftAssetId: true,
-          rightAssetId: true,
-          leftAsset: {
-            select: {
-              key: true,
-            },
-          },
-          rightAsset: {
-            select: {
-              key: true,
-            },
+    const pair = await prisma.votingPair.findUnique({
+      where: { id: parsed.data.pairId },
+      select: {
+        id: true,
+        pairKey: true,
+        matchupMode: true,
+        active: true,
+        leftAssetKeys: true,
+        rightAssetKeys: true,
+        leftAssetId: true,
+        rightAssetId: true,
+        leftAsset: {
+          select: {
+            key: true,
           },
         },
-      }),
-      prisma.voter.findUnique({
-        where: { visitorId: session.visitorId },
-        select: {
-          streakDays: true,
-          lastVotedAt: true,
-          xp: true,
-          totalVotes: true,
+        rightAsset: {
+          select: {
+            key: true,
+          },
         },
-      }),
-    ]);
+      },
+    });
 
     if (!pair || !pair.active) {
       return NextResponse.json(
@@ -76,8 +66,6 @@ export async function POST(request: NextRequest) {
     }
 
     const now = new Date();
-
-    const progression = computeStreakAndXp(existingVoter);
     const selectedSide = parsed.data.selectedSide as VoteSide;
 
     const leftAssetKeys = pair.leftAssetKeys.length ? pair.leftAssetKeys : [pair.leftAsset.key];
@@ -119,7 +107,18 @@ export async function POST(request: NextRequest) {
           ? rightAssetIds[0]
           : null;
 
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await withSerializableRetry(prisma, async (tx) => {
+      const existingVoter = await tx.voter.findUnique({
+        where: { visitorId: session.visitorId },
+        select: {
+          streakDays: true,
+          lastVotedAt: true,
+          xp: true,
+          totalVotes: true,
+        },
+      });
+
+      const progression = computeStreakAndXp(existingVoter, now);
       const voter = await tx.voter.upsert({
         where: {
           visitorId: session.visitorId,
@@ -133,9 +132,13 @@ export async function POST(request: NextRequest) {
           lastSeenAt: now,
         },
         update: {
-          xp: progression.nextXp,
+          xp: {
+            increment: progression.xpGain,
+          },
           streakDays: progression.streakDays,
-          totalVotes: progression.nextTotalVotes,
+          totalVotes: {
+            increment: 1,
+          },
           lastVotedAt: now,
           lastSeenAt: now,
         },
@@ -174,12 +177,6 @@ export async function POST(request: NextRequest) {
           select: {
             assetId: true,
             elo: true,
-            wins: true,
-            losses: true,
-            ties: true,
-            pollsCount: true,
-            votesFor: true,
-            votesAgainst: true,
           },
         });
         const existingByAssetId = new Map(existingScores.map((score) => [score.assetId, score]));
@@ -197,8 +194,7 @@ export async function POST(request: NextRequest) {
 
         for (let idx = 0; idx < leftAssetIds.length; idx += 1) {
           const assetId = leftAssetIds[idx];
-          const base = existingByAssetId.get(assetId);
-          const nextElo = elo.leftScores[idx] ?? base?.elo ?? 1500;
+          const nextElo = elo.leftScores[idx] ?? existingByAssetId.get(assetId)?.elo ?? 1500;
 
           await tx.assetScore.upsert({
             where: { assetId },
@@ -215,12 +211,24 @@ export async function POST(request: NextRequest) {
             },
             update: {
               elo: nextElo,
-              wins: (base?.wins ?? 0) + (leftOutcome === "win" ? 1 : 0),
-              losses: (base?.losses ?? 0) + (leftOutcome === "loss" ? 1 : 0),
-              ties: (base?.ties ?? 0) + (leftOutcome === "tie" ? 1 : 0),
-              pollsCount: (base?.pollsCount ?? 0) + 1,
-              votesFor: (base?.votesFor ?? 0) + votesLeft,
-              votesAgainst: (base?.votesAgainst ?? 0) + votesRight,
+              wins: {
+                increment: leftOutcome === "win" ? 1 : 0,
+              },
+              losses: {
+                increment: leftOutcome === "loss" ? 1 : 0,
+              },
+              ties: {
+                increment: leftOutcome === "tie" ? 1 : 0,
+              },
+              pollsCount: {
+                increment: 1,
+              },
+              votesFor: {
+                increment: votesLeft,
+              },
+              votesAgainst: {
+                increment: votesRight,
+              },
               lastPollAt: now,
             },
           });
@@ -228,8 +236,7 @@ export async function POST(request: NextRequest) {
 
         for (let idx = 0; idx < rightAssetIds.length; idx += 1) {
           const assetId = rightAssetIds[idx];
-          const base = existingByAssetId.get(assetId);
-          const nextElo = elo.rightScores[idx] ?? base?.elo ?? 1500;
+          const nextElo = elo.rightScores[idx] ?? existingByAssetId.get(assetId)?.elo ?? 1500;
 
           await tx.assetScore.upsert({
             where: { assetId },
@@ -246,19 +253,31 @@ export async function POST(request: NextRequest) {
             },
             update: {
               elo: nextElo,
-              wins: (base?.wins ?? 0) + (rightOutcome === "win" ? 1 : 0),
-              losses: (base?.losses ?? 0) + (rightOutcome === "loss" ? 1 : 0),
-              ties: (base?.ties ?? 0) + (rightOutcome === "tie" ? 1 : 0),
-              pollsCount: (base?.pollsCount ?? 0) + 1,
-              votesFor: (base?.votesFor ?? 0) + votesRight,
-              votesAgainst: (base?.votesAgainst ?? 0) + votesLeft,
+              wins: {
+                increment: rightOutcome === "win" ? 1 : 0,
+              },
+              losses: {
+                increment: rightOutcome === "loss" ? 1 : 0,
+              },
+              ties: {
+                increment: rightOutcome === "tie" ? 1 : 0,
+              },
+              pollsCount: {
+                increment: 1,
+              },
+              votesFor: {
+                increment: votesRight,
+              },
+              votesAgainst: {
+                increment: votesLeft,
+              },
               lastPollAt: now,
             },
           });
         }
       }
 
-      return { voter, vote };
+      return { voter, vote, xpGain: progression.xpGain };
     });
 
     const response = NextResponse.json({
@@ -272,7 +291,7 @@ export async function POST(request: NextRequest) {
       },
       voter: {
         visitorId: session.visitorId,
-        xpGain: progression.xpGain,
+        xpGain: result.xpGain,
         xp: result.voter.xp,
         streakDays: result.voter.streakDays,
         totalVotes: result.voter.totalVotes,
