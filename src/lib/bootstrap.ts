@@ -9,7 +9,7 @@ import {
 import { canonicalPairKey } from "@/lib/pair-key";
 
 const BOOTSTRAP_CURSOR_SOURCE = "web_bootstrap_seed_version";
-const BOOTSTRAP_SEED_VERSION = "2026-02-14-seed-expansion-snorlax-sudowoodo-volcarona-v1";
+const BOOTSTRAP_SEED_VERSION = "2026-02-14-seed-snorlax-sudowoodo-exceptions-no-volcarona-v1";
 const BOOTSTRAP_FALLBACK_VERSION = `${BOOTSTRAP_SEED_VERSION}:fallback`;
 const GOLDEN_PREFIX = "Golden";
 
